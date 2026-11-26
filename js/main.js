@@ -706,8 +706,7 @@ function frame() {
   playerView.root.visible = !inXr;
 
   if (inXr) {
-    rig.position.copy(player.pos);
-    rig.rotation.y = xr.turn;
+    xr.placeRig(player.pos);
     xr.aimRay(aimOrigin, aimDir);
   } else {
     rig.position.set(0, 0, 0);

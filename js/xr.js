@@ -1,8 +1,11 @@
-// VR（WebXR）。左スティックで歩く・右スティックで向きを変える・右の引き金で置く（押す: 床、長押し: 壁）
+// VR（WebXR）。左スティックで頭の向きを前に歩く・右スティックでなめらかに向きを変える（押しこむとスナップ）・右の引き金で置く（押す: 床、長押し: 壁）
 // 右手のメニュー: A で次の建材、B で回収に切りかえ。左の引き金でジャンプ、左のグリップで走る
 import * as THREE from 'three';
 
 const SNAP_TURN = Math.PI / 6;
+// ゲームの GamepadAim.LOOK_SENS（1.35 rad/秒）を VR の主観では 2 倍にしている
+const SMOOTH_TURN_SPEED = 1.35 * 2.0;
+const STICK_DEADZONE = 0.22;
 
 export class XrControls {
   constructor(renderer, scene, rig, camera, o) {
@@ -166,11 +169,19 @@ export class XrControls {
     this._nt = setTimeout(() => { this.camera.remove(m); }, 3000);
   }
 
+  // 頭の向き（ワールド）。XR のカメラの姿勢はリグの中のローカルなので、右スティックで回した分（turn）を足す
   headYaw() {
-    const q = new THREE.Quaternion();
-    this.renderer.xr.getCamera().getWorldQuaternion(q);
+    const q = this.renderer.xr.getCamera().quaternion;
     const f = new THREE.Vector3(0, 0, -1).applyQuaternion(q);
-    return Math.atan2(-f.x, -f.z);
+    return this.turn + Math.atan2(-f.x, -f.z);
+  }
+
+  // ゲームと同じく、頭の真下がいつもキャラの位置になるようにリグを置く（部屋の中で歩いた分を打ち消す）
+  placeRig(playerPos) {
+    const local = this.renderer.xr.getCamera().position;
+    const off = new THREE.Vector3(local.x, 0, local.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.turn);
+    this.rig.position.copy(playerPos).sub(off);
+    this.rig.rotation.set(0, this.turn, 0);
   }
 
   aimRay(origin, dir) {
@@ -202,14 +213,27 @@ export class XrControls {
     return a.length >= 4 ? [a[2], a[3]] : [a[0] || 0, a[1] || 0];
   }
 
-  update() {
+  update(dt) {
+    // 左スティック: 頭の向きを前として歩く（ゲームと同じ。あそびも同じ 0.22）
     const [lx, ly] = this._axes('left');
-    this.move.set(Math.abs(lx) > 0.15 ? lx : 0, Math.abs(ly) > 0.15 ? -ly : 0);
+    const mv = new THREE.Vector2(lx, -ly);
+    if (mv.length() < STICK_DEADZONE) mv.set(0, 0);
+    if (mv.length() > 1) mv.normalize();
+    this.move.copy(mv);
     this.sprint = this._pressed('left', 1);
+    // 右スティック: ゲームの既定と同じなめらかな回転（LOOK_SENS × 2）。右スティックを押しこむとスナップ（30°）に切りかえ
     const [rx] = this._axes('right');
-    if (Math.abs(rx) > 0.7) {
-      if (!this._turnLatch) { this.turn -= Math.sign(rx) * SNAP_TURN; this._turnLatch = true; }
-    } else if (Math.abs(rx) < 0.3) this._turnLatch = false;
+    if (this._edge('right', 3) === 1) {
+      this.snapTurn = !this.snapTurn;
+      this.notice(this.snapTurn ? '回転: スナップ（30°）' : '回転: なめらか');
+    }
+    if (this.snapTurn) {
+      if (Math.abs(rx) >= 0.7) {
+        if (!this._turnLatch) { this.turn -= Math.sign(rx) * SNAP_TURN; this._turnLatch = true; }
+      } else if (Math.abs(rx) < 0.35) this._turnLatch = false;
+    } else if (Math.abs(rx) >= STICK_DEADZONE) {
+      this.turn -= rx * SMOOTH_TURN_SPEED * dt;
+    }
     if (this._edge('left', 0) === 1) this.o.input.jump = true;
     const trig = this._edge('right', 0);
     if (trig === 1) {
