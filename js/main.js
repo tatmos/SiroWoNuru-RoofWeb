@@ -341,7 +341,15 @@ function targetRow(t) {
   };
 }
 
+let ghostKey = '';
 function updateGhost() {
+  // 同じ置き場所なら作りなおさない
+  const t0 = aimState.target;
+  const key = !aimState.pickMode && t0
+    ? `${t0.kind}|${t0.ok}|${t0.pos.x.toFixed(3)},${t0.pos.y.toFixed(3)},${t0.pos.z.toFixed(3)}|${(t0.yaw || 0).toFixed(3)}|${(t0.pitch || 0).toFixed(3)}|${t0.horizontal}`
+    : '';
+  if (key && key === ghostKey && ghost) return;
+  ghostKey = key;
   if (ghost) { piecesRoot.remove(ghost); ghost.geometry.dispose(); ghost = null; }
   if (pickHighlight) { pickHighlight.visible = false; }
   if (aimState.pickMode) {
@@ -668,6 +676,11 @@ window.addEventListener('resize', () => {
 // --- まわす ---
 const clock = new THREE.Clock();
 let saveTimer = 0;
+let frameNo = 0;
+renderer.domElement.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  xr.status('画面（WebGL）が失われました。ページを読み込みなおしてください', true);
+});
 
 function frame() {
   const dt = Math.min(clock.getDelta(), 1 / 20);
@@ -714,7 +727,12 @@ function frame() {
 
   saveTimer += dt;
   if (saveTimer > 5) { saveTimer = 0; save(); }
+  // VR では両目を描くので、影は 6 フレームに 1 回だけ描きなおす
+  frameNo += 1;
+  renderer.shadowMap.autoUpdate = !inXr;
+  if (inXr && frameNo % 6 === 0) renderer.shadowMap.needsUpdate = true;
   renderer.render(scene, camera);
+  if (inXr && xr.firstFramePending) { xr.firstFramePending = false; xr.status('VR の最初の画面を描きました'); }
 }
 
 await loadInitial();

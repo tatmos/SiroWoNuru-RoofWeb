@@ -30,17 +30,47 @@ export class XrControls {
     try { return await navigator.xr.isSessionSupported('immersive-vr'); } catch { return false; }
   }
 
+  // VR を始める。どこで止まったか分かるよう、段ごとに画面へ出す
   async start() {
     if (this.renderer.xr.isPresenting) { this.renderer.xr.getSession().end(); return; }
+    if (this._starting) return;
+    this._starting = true;
+    const t0 = performance.now();
+    const step = (msg) => this.status(`${msg}（${((performance.now() - t0) / 1000).toFixed(1)} 秒）`);
     try {
+      // ゴーグルの GPU に合わせる（PC では GPU の切りかえで時間がかかることがある）
+      step('1/3 GPU を VR 用に準備しています…');
+      const gl = this.renderer.getContext();
+      if (gl.makeXRCompatible) await gl.makeXRCompatible();
+      step('2/3 ゴーグルに VR を頼んでいます…（ゴーグルの中を見てください）');
       const session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'] });
+      step('3/3 VR の画面を作っています…');
       this.renderer.xr.setReferenceSpaceType('local-floor');
+      this.renderer.xr.setFoveation(1.0);
       await this.renderer.xr.setSession(session);
+      this.firstFramePending = true;
       document.body.classList.add('in-vr');
+      step('VR を開始しました');
+      setTimeout(() => { if (this.renderer.xr.isPresenting) this.status(''); }, 4000);
     } catch (e) {
       console.warn(e);
-      alert('VR を始められませんでした: ' + e.message);
+      this.status(`VR を始められませんでした: ${e && e.message ? e.message : e}`, true);
+    } finally {
+      this._starting = false;
     }
+  }
+
+  status(msg, error = false) {
+    let el = document.getElementById('xr-status');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'xr-status';
+      document.body.appendChild(el);
+      el.onclick = () => el.classList.remove('on');
+    }
+    el.textContent = msg;
+    el.classList.toggle('on', !!msg);
+    el.classList.toggle('err', error);
   }
 
   _setupController(i) {

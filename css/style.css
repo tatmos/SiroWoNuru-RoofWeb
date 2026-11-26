@@ -90,3 +90,6 @@ body.touch #hint { bottom: 230px; }
   .slot .lab { font-size: 11px; }
 }
 body.in-vr #top, body.in-vr #menu, body.in-vr #promo { opacity: .35; }
+#xr-status { position: fixed; left: 50%; top: 110px; transform: translateX(-50%); background: rgba(20,16,12,.9); color: #fff; padding: 10px 16px; border-radius: 10px; font-size: 14px; z-index: 60; display: none; max-width: 92vw; text-align: center; }
+#xr-status.on { display: block; }
+#xr-status.err { background: #8a2a1a; }
