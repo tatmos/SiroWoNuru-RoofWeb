@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>しろを塗る・屋上建築Web版</title>
+<meta name="description" content="「しろを塗る Castle Paint」の拠点の屋上で、レンガ・ガラス・暖簾・大理石を組んで建物を作れる体験版。JSON と 3D 印刷用 3MF を書き出せます。">
+<meta property="og:title" content="しろを塗る・屋上建築Web版">
+<meta property="og:description" content="ブラウザで屋上建築。PC・スマホ・VR（WebXR）対応。">
+<link rel="icon" href="assets/favicon.png">
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.js" } }
+</script>
+<script src="vendor/polygon-clipping.umd.min.js"></script>
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<div id="loading">しろを塗る・屋上建築Web版<br><small>読み込み中…</small></div>
+
+<header id="top">
+  <div class="brand">しろを塗る<span>屋上建築Web版</span></div>
+  <button id="btn-menu" class="only-touch" aria-label="メニュー">☰</button>
+  <div id="tools">
+    <button id="btn-export-json" title="屋上の建材を JSON で保存（ゲーム本体の「設定 → 拠点 → JSON を読み込む」で使えます）">JSON 書き出し</button>
+    <button id="btn-import-json" title="ゲーム本体で書き出した JSON を読み込む（いまの建材と置きかわります）">JSON 読み込み</button>
+    <input id="file-json" type="file" accept=".json,application/json" hidden>
+    <button id="btn-export-3mf" title="3D プリンタ用の 3MF（1/100。段ごとに分けて重ねる形）">3MF ダウンロード</button>
+    <label class="chk" title="いちばん下に台をつける"><input id="chk-base" type="checkbox" checked>台</label>
+    <button id="btn-sample">見本</button>
+    <button id="btn-clear">全部消す</button>
+    <button id="btn-respawn" title="屋上の真ん中へ戻る">戻る</button>
+    <button id="btn-help">操作</button>
+    <button id="btn-vr" hidden>VR で遊ぶ</button>
+  </div>
+</header>
+
+<nav id="promo">
+  <a href="https://store.steampowered.com/app/5254900/" target="_blank" rel="noopener">Steam ↗</a>
+  <a href="https://discord.gg/5tVwyskeCd" target="_blank" rel="noopener">Discord ↗</a>
+  <a href="https://www.youtube.com/@%E3%81%97%E3%82%8D%E3%82%92%E5%A1%97%E3%82%8BCastlePaint" target="_blank" rel="noopener">YouTube ↗</a>
+</nav>
+
+<!-- 右手メニュー（建築の持ち物） -->
+<div id="menu"></div>
+<div id="hint"></div>
+<div id="crosshair"></div>
+<div id="toast"></div>
+<div id="cards"></div>
+
+<div id="stick"><div id="stick-knob"></div></div>
+<button id="btn-jump" class="only-touch">ジャンプ</button>
+<button id="btn-place" class="only-touch">置く<small>長押しで壁</small></button>
+
+<div id="help">
+  <div class="box">
+    <h2>操作</h2>
+    <table>
+      <tr><th>PC</th><td>WASD 歩く ／ Shift 走る ／ Space ジャンプ<br>左クリック 置く（押す: 床、長押し: 壁）<br>右ドラッグ 見回す ／ ホイール 寄る・離れる<br>1〜5・Q/E 建材をえらぶ ／ F 回収</td></tr>
+      <tr><th>スマホ</th><td>左を押してスティック ／ 右をなぞって見回す<br>「置く」を押す: 床、長押し: 壁（画面の真ん中をねらう）</td></tr>
+      <tr><th>VR</th><td>左スティック 歩く ／ 右スティック 向きを変える<br>右の引き金 置く（押す: 床、長押し: 壁）<br>A 次の建材 ／ B 回収 ／ 左の引き金 ジャンプ ／ 左のグリップ 走る</td></tr>
+    </table>
+    <p>壁の上や板の端をねらうと、そこへつなげて置けます。床の端から上の壁の角へつなぐと坂、板の下をねらうと暖簾が下がります。<br>
+    1 分ごとに宝箱が降ってきます。近づくと開いて、補給カード（建材 +10）を 1 枚えらべます。</p>
+    <p>JSON はゲーム本体の「設定 → 拠点」の「JSON を読み込む」でそのまま使えます（ゲームで書き出した JSON もここで読めます）。<br>
+    3MF は Bambu Studio などで開けます（段ごとに分けて刷り、ダボで重ねる形。1/100）。</p>
+    <p class="small">建てたものはこのブラウザに自動で保存されます。</p>
+    <p class="close">（どこかをクリックで閉じる）</p>
+  </div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
