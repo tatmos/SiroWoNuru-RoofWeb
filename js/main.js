@@ -8,12 +8,13 @@ import { buildPieceMesh, setMarbleTexture } from './pieces_view.js';
 import { toJson, fromJson } from './roof_build_io.js';
 import { export3mf } from './roof_print_export.js';
 import {
-  PlayerView, SPEED, SPRINT_SPEED_MUL, MOVE_ACCEL, MOVE_REVERSE_ACCEL, GRAVITY, JUMP_VELOCITY, RADIUS, STEP, BODY_H,
+  PlayerView, SPEED, SPRINT_SPEED_MUL, MOVE_ACCEL, MOVE_REVERSE_ACCEL, MOVE_DECEL, GRAVITY, JUMP_VELOCITY, RADIUS, STEP, BODY_H,
 } from './player.js';
 import { Hud } from './hud.js';
 import { XrControls } from './xr.js';
 import { Chests } from './chests.js';
 import { LinkBoards } from './links.js';
+import { playPlace, playPickup, playChest } from './sound.js';
 
 const PLACE_MAX_RANGE = 10.0;
 const HEX_WALL_HOLD_MSEC = 220;
@@ -33,7 +34,7 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
@@ -196,23 +197,29 @@ const input = {
   jump: false,
 };
 
-function stepPlayer(dt, viewYaw) {
+function stepPlayer(dt, viewYaw, inXrMove = false) {
   // 入力の向き（カメラ基準）
   const f = new THREE.Vector3(-Math.sin(viewYaw), 0, -Math.cos(viewYaw));
   const r = new THREE.Vector3(Math.cos(viewYaw), 0, -Math.sin(viewYaw));
   const want = f.multiplyScalar(input.move.y).add(r.multiplyScalar(input.move.x));
   if (want.lengthSq() > 1) want.normalize();
   want.multiplyScalar(SPEED * (input.sprint ? SPRINT_SPEED_MUL : 1));
+  // ゲームの _steer_xz_velocity と同じ: 一定の加速で近づける（逆向きは速く、手を離すと MOVE_DECEL で止まる）
   const hv = new THREE.Vector3(player.vel.x, 0, player.vel.z);
-  const accel = hv.dot(want) < 0 ? MOVE_REVERSE_ACCEL : MOVE_ACCEL;
-  hv.lerp(want, Math.min(1, accel * dt));
+  let rate = MOVE_ACCEL;
+  if (want.lengthSq() > 0.0001 && hv.lengthSq() > 0.08 && hv.clone().normalize().dot(want.clone().normalize()) < -0.2) rate = MOVE_REVERSE_ACCEL;
+  if (want.lengthSq() < 0.0001) rate = MOVE_DECEL;
+  const diff = want.clone().sub(hv);
+  const step = rate * dt;
+  if (diff.length() <= step) hv.copy(want); else hv.add(diff.setLength(step));
   player.vel.x = hv.x;
   player.vel.z = hv.z;
-  if (want.lengthSq() > 0.01) {
-    const target = Math.atan2(want.x, want.z);
-    let d = target - player.facing;
-    d = Math.atan2(Math.sin(d), Math.cos(d));
-    player.facing += d * Math.min(1, 12 * dt);
+  if (inXrMove) {
+    // VR: 体は進む向きへ（見た目だけ。VR では体を出さない）
+    if (want.lengthSq() > 0.01) player.facing = Math.atan2(want.x, want.z);
+  } else {
+    // PC・スマホの三人称: 体はいつもカメラの向き。A/D は横歩き（ゲームと同じ）
+    player.facing = viewYaw + Math.PI;
   }
   if (input.jump && player.onGround) {
     player.vel.y = JUMP_VELOCITY;
@@ -380,6 +387,7 @@ function commitPress() {
     const p = aimState.pickPiece;
     if (p) {
       removePiece(p);
+      playPickup();
       if (p.kind in stock) stock[p.kind] += 1;
       save();
       hud.refresh();
@@ -391,6 +399,7 @@ function commitPress() {
   if (!t) return;
   if (!t.ok) { if (aimState.reason) hud.toast(aimState.reason); return; }
   addRow(targetRow(t));
+  playPlace(t.kind);
   stock[t.kind] -= 1;
   save();
   hud.refresh();
@@ -619,6 +628,7 @@ const chests = new Chests(scene, {
   items: ITEMS,
   camera,
   isXr: () => renderer.xr.isPresenting,
+  onOpen: () => playChest(),
   onPick: (kind, n) => {
     stock[kind] = (stock[kind] | 0) + n;
     save();
@@ -700,9 +710,8 @@ function frame() {
     input.move.copy(mv);
     input.sprint = keys.has('ShiftLeft') || keys.has('ShiftRight') || touch.stickVec.length() > 0.95;
   }
-  stepPlayer(dt, viewYaw);
-  const hspeed = Math.hypot(player.vel.x, player.vel.z);
-  playerView.update(dt, player.pos, player.facing, hspeed, player.onGround);
+  stepPlayer(dt, viewYaw, inXr);
+  playerView.update(dt, player.pos, player.facing, player.vel, player.onGround);
   playerView.root.visible = !inXr;
 
   if (inXr) {

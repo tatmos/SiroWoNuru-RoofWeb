@@ -80,6 +80,7 @@ export class Chests {
   }
 
   _open(c) {
+    if (this.o.onOpen) this.o.onOpen();
     this.scene.remove(c.g);
     this.list.splice(this.list.indexOf(c), 1);
     const pool = this.o.items.filter((it) => it.card);

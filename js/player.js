@@ -6,6 +6,7 @@ export const SPEED = 7.0;
 export const SPRINT_SPEED_MUL = 2.0;
 export const MOVE_ACCEL = 14.0;
 export const MOVE_REVERSE_ACCEL = 52.0;
+export const MOVE_DECEL = 20.0;
 export const RUN_SPEED_THRESHOLD = 5.0;
 export const GRAVITY = 20.0;
 export const JUMP_VELOCITY = 7.0;
@@ -56,13 +57,23 @@ export class PlayerView {
     this.current = name;
   }
 
-  update(dt, pos, facing, speed, onGround) {
+  // vel: 水平の速度。体の向きに対して後ろへ進むときは歩きを逆回しにする
+  update(dt, pos, facing, vel, onGround) {
     this.root.position.copy(pos);
     this.root.rotation.y = facing;
+    const speed = Math.hypot(vel.x, vel.z);
+    const along = vel.x * Math.sin(facing) + vel.z * Math.cos(facing);
+    const back = speed > 0.4 && along < -0.3 * speed;
     if (!onGround) this.play('jump', 0.15);
-    else if (speed > RUN_SPEED_THRESHOLD) this.play('run');
+    else if (speed > RUN_SPEED_THRESHOLD && !back) this.play('run');
     else if (speed > 0.4) this.play('walk');
     else this.play('idle');
+    const a = this.actions[this.current];
+    if (a && (this.current === 'walk' || this.current === 'run')) {
+      // 足の運びを速さに合わせる（歩き 0.6〜1.1 倍、走り 0.8〜1.12 倍）
+      const pace = this.current === 'walk' ? Math.min(1.1, Math.max(0.6, speed / 3.5)) : Math.min(1.12, Math.max(0.8, speed / 9));
+      a.timeScale = back ? -pace : pace;
+    } else if (a) a.timeScale = 1;
     if (this.mixer) this.mixer.update(dt);
   }
 }
