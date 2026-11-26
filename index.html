@@ -13,6 +13,7 @@
 { "imports": { "three": "./vendor/three/three.module.js" } }
 </script>
 <script src="vendor/polygon-clipping.umd.min.js"></script>
+<script src="version.js"></script>
 </head>
 <body>
 <canvas id="view"></canvas>
@@ -20,7 +21,8 @@
 <div id="loading">しろを塗る・屋上建築Web版<br><small>読み込み中…</small></div>
 
 <header id="top">
-  <div class="brand">しろを塗る<span>屋上建築Web版</span></div>
+  <div class="brand">しろを塗る<span>屋上建築Web版</span><em id="build"></em></div>
+  <script>{ const b = window.SIRO_BUILD; if (b) document.getElementById("build").textContent = `build ${b.n} (${b.time})`; }</script>
   <button id="btn-menu" class="only-touch" aria-label="メニュー">☰</button>
   <div id="tools">
     <button id="btn-export-json" title="屋上の建材を JSON で保存（ゲーム本体の「設定 → 拠点 → JSON を読み込む」で使えます）">JSON 書き出し</button>
