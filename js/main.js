@@ -11,6 +11,7 @@ import {
   PlayerView, SPEED, SPRINT_SPEED_MUL, MOVE_ACCEL, MOVE_REVERSE_ACCEL, MOVE_DECEL, GRAVITY, JUMP_VELOCITY, RADIUS, STEP, BODY_H,
 } from './player.js';
 import { Hud } from './hud.js';
+import { FanMenu } from './fan.js';
 import { XrControls } from './xr.js';
 import { Chests } from './chests.js';
 import { LinkBoards } from './links.js';
@@ -19,6 +20,8 @@ import { Climber } from './climb.js';
 
 const PLACE_MAX_RANGE = 10.0;
 const HEX_WALL_HOLD_MSEC = 220;
+// 右ボタンをこれより長く押したらカメラを回す操作（ゲームの RMB_MOUSE_ORBIT_HOLD_MS）
+const RMB_MOUSE_ORBIT_HOLD_MS = 460;
 const LOOK_HEIGHT = 1.35;
 const STORE_KEY = 'siro_roof_web_v1';
 export const ITEMS = [
@@ -544,6 +547,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyE') selectItem(selected + 1);
   if (e.code === 'KeyF') selectItem(selected === 4 ? 0 : 4);
   if (e.code === 'KeyR') chests.tryOpenNear(player.pos, 2.2);
+  if (e.code === 'Escape' && fan.open) fan.close();
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
 window.addEventListener('blur', () => keys.clear());
@@ -555,7 +559,12 @@ canvas.addEventListener('pointerdown', (e) => {
   pointerInside = true;
   setPointer(e);
   if (e.button === 2 || e.button === 1) {
-    rmbDrag = { x: e.clientX, y: e.clientY, yaw: cam.yaw, pitch: cam.pitch };
+    rmbDrag = { x: e.clientX, y: e.clientY, yaw: cam.yaw, pitch: cam.pitch, at: performance.now(), moved: false, button: e.button };
+    return;
+  }
+  if (e.button === 0 && fan.open) {
+    // 扇が出ているときの左クリックは、板をクリックすればその板、それ以外はカーソルの項目を持つ
+    if (!fan.clickAt(e.clientX, e.clientY)) fan.confirm();
     return;
   }
   if (e.button === 0) {
@@ -571,17 +580,29 @@ canvas.addEventListener('pointermove', (e) => {
   pointerInside = true;
   setPointer(e);
   if (rmbDrag) {
+    if (Math.abs(e.clientX - rmbDrag.x) + Math.abs(e.clientY - rmbDrag.y) > 6) rmbDrag.moved = true;
     cam.yaw = rmbDrag.yaw - (e.clientX - rmbDrag.x) * 0.006;
     cam.pitch = Math.max(-1.45, Math.min(0.9, rmbDrag.pitch - (e.clientY - rmbDrag.y) * 0.005));
   }
 });
 canvas.addEventListener('pointerup', (e) => {
   if (e.pointerType === 'touch') return;
-  if ((e.button === 2 || e.button === 1) && rmbDrag) { rmbDrag = null; return; }
+  if ((e.button === 2 || e.button === 1) && rmbDrag) {
+    // 動かさずに短く押した右クリック: 扇メニューを出す／閉じる（ゲームと同じ）。登っているときは壁から外へ跳ぶ
+    const click = rmbDrag.button === 2 && !rmbDrag.moved && performance.now() - rmbDrag.at < RMB_MOUSE_ORBIT_HOLD_MS;
+    rmbDrag = null;
+    if (click) {
+      if (climber.active) climber.leapAway(player);
+      else fan.toggle();
+    }
+    return;
+  }
   if (e.button === 0) endPress('mouse');
 });
 canvas.addEventListener('pointerleave', () => { pointerInside = false; });
 canvas.addEventListener('wheel', (e) => {
+  // 扇が出ているあいだは、ホイールで項目を選ぶ
+  if (fan.open) { fan.step(e.deltaY > 0 ? 1 : -1); e.preventDefault(); return; }
   cam.dist = Math.max(2.0, Math.min(16, cam.dist * (e.deltaY > 0 ? 1.1 : 0.9)));
   e.preventDefault();
 }, { passive: false });
@@ -670,6 +691,21 @@ function setupTouch() {
 }
 
 // --- HUD・宝箱・看板・VR ---
+// 右手の扇メニュー（PC）。右手の画面の位置に出す
+const fan = new FanMenu({
+  items: ITEMS,
+  stock,
+  getSelected: () => selected,
+  select: (i) => selectItem(i),
+  anchor: () => {
+    const hand = playerView.rightHand;
+    const v = new THREE.Vector3();
+    if (hand) hand.getWorldPosition(v); else v.copy(player.pos).add(new THREE.Vector3(0, 1.0, 0));
+    v.project(camera);
+    return { x: (v.x * 0.5 + 0.5) * window.innerWidth, y: (-v.y * 0.5 + 0.5) * window.innerHeight };
+  },
+});
+
 const hud = new Hud({
   items: ITEMS,
   stock,
@@ -902,12 +938,14 @@ function frame() {
     updateCamera();
     if (pointerInside || useCenterAim) computeAimRay();
   }
-  if (inXr || pointerInside || useCenterAim) evaluateAim(aimOrigin, aimDir);
+  if (fan.open) { aimState.target = null; aimState.pickPiece = null; } // 扇を出しているあいだは置かない
+  else if (inXr || pointerInside || useCenterAim) evaluateAim(aimOrigin, aimDir);
   else { aimState.target = null; aimState.pickPiece = null; }
   updateGhost();
   hud.setAimHint(aimState, inXr);
 
   chests.update(dt, player.pos);
+  fan.update(dt);
   animateCurtains(dt);
   links.update(aimOrigin, aimDir);
   sun.position.set(player.pos.x + 30, player.pos.y + 50, player.pos.z + 20);

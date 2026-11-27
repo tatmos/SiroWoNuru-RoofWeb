@@ -94,3 +94,22 @@ body.in-vr #top, body.in-vr #menu, body.in-vr #promo { opacity: .35; }
 #xr-status.on { display: block; }
 #xr-status.err { background: #8a2a1a; }
 .brand em { font-style: normal; font-size: 9px; font-weight: 400; color: #b3a898; margin-left: 6px; letter-spacing: .02em; }
+
+/* 右手の扇メニュー（PC） */
+#fan { position: fixed; inset: 0; pointer-events: none; z-index: 12; display: none; }
+#fan.on { display: block; }
+.fan-slot { position: absolute; left: 0; top: 0; width: 92px; height: 104px; border-radius: 14px; background: #fbf4e4; border: 3px solid rgba(60,45,30,.45); box-shadow: 0 6px 16px rgba(0,0,0,.35); overflow: hidden; pointer-events: auto; cursor: pointer; will-change: transform; }
+.fan-slot .art { position: absolute; inset: 6px 6px 28px 6px; border-radius: 9px; background-size: cover; background-position: center; }
+.fan-slot .art.sym { display: flex; align-items: center; justify-content: center; font-size: 36px; color: #3a7a50; background: #efe6d2; }
+.fan-slot .lab { position: absolute; left: 0; right: 0; bottom: 5px; text-align: center; font-size: 14px; font-weight: 800; }
+.fan-slot .n { position: absolute; right: 6px; top: 6px; background: #2a2018; color: #fff; font-size: 13px; font-weight: 800; border-radius: 8px; padding: 0 6px; }
+.fan-slot .n:empty { display: none; }
+.fan-slot.cur { border-color: #f2a51e; box-shadow: 0 0 0 4px rgba(242,165,30,.55), 0 8px 20px rgba(0,0,0,.4); }
+.fan-slot.held::after { content: '持っている'; position: absolute; left: 6px; top: 6px; font-size: 10px; font-weight: 700; background: rgba(42,32,24,.75); color: #fff; border-radius: 6px; padding: 0 4px; }
+.fan-slot.empty .art { filter: grayscale(1) opacity(.45); }
+.fan-hint { position: absolute; left: 0; top: 0; background: rgba(30,24,18,.8); color: #fff; font-size: 12px; padding: 4px 10px; border-radius: 8px; white-space: nowrap; }
+
+/* PC は右の縦メニューのかわりに、いま持っている建材だけを出す（右クリックで扇） */
+body:not(.touch) #menu .slot:not(.sel) { display: none; }
+body:not(.touch) #menu { top: auto; bottom: 14px; transform: none; }
+body:not(.touch) #menu::after { content: '右クリックで持ちかえ'; display: block; font-size: 11px; color: #fff; text-shadow: 0 0 3px #000; text-align: center; margin-top: 2px; }

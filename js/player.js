@@ -47,6 +47,7 @@ export class PlayerView {
       if (key && !this.actions[key]) this.actions[key] = this.mixer.clipAction(clip);
     }
     this.play('idle');
+    model.traverse((o) => { if (!this.rightHand && o.isBone && o.name === 'R_Hand') this.rightHand = o; });
     if (this.floorAt) this.gait = new ProceduralGait(model, this.floorAt);
     await this._loadUal(model);
   }
