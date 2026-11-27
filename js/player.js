@@ -1,6 +1,7 @@
 // プレイヤー（しろ）。数値はゲームの scripts/game/player_avatar_3d.gd と同じ
 import * as THREE from 'three';
 import { GLTFLoader } from '../vendor/three/addons/loaders/GLTFLoader.js';
+import { ProceduralGait } from './gait.js';
 
 export const SPEED = 7.0;
 export const SPRINT_SPEED_MUL = 2.0;
@@ -46,6 +47,7 @@ export class PlayerView {
       if (key && !this.actions[key]) this.actions[key] = this.mixer.clipAction(clip);
     }
     this.play('idle');
+    if (this.floorAt) this.gait = new ProceduralGait(model, this.floorAt);
   }
 
   play(name, fade = 0.2) {
@@ -57,47 +59,33 @@ export class PlayerView {
     this.current = name;
   }
 
-  // facing: 体の向き（カメラの向き）。vel: 水平の速度。
-  // 横歩きのアニメが無いので、横へ動くときは見た目の体を進む向きへ回す。後ろへ動くときは前を向いたまま歩きを逆回し
+  // facing: 体の向き（PC・スマホはカメラの向き。ゲームと同じく横歩きでも体は回さない）。
+  // 地上では待機クリップを土台に、手続きの歩き（gait.js。ゲームの procedural_gait.gd）で脚・腰・腕を動かす
   update(dt, pos, facing, vel, onGround, climb = null) {
     this.root.position.copy(pos);
-    const speed = Math.hypot(vel.x, vel.z);
-    let back = false;
-    let visual = facing;
-    if (!climb && speed > 0.4) {
-      const moveYaw = Math.atan2(vel.x, vel.z);
-      let d = Math.atan2(Math.sin(moveYaw - facing), Math.cos(moveYaw - facing));
-      if (Math.abs(d) > Math.PI * 0.62) {
-        // 後ろ向きに近い: 逆の向きを向いて逆回し（斜め後ろも同じ）
-        back = true;
-        d = Math.atan2(Math.sin(d + Math.PI), Math.cos(d + Math.PI));
-      }
-      visual = facing + d;
-    }
-    if (climb) this._visualYaw = facing;
-    if (this._visualYaw === undefined) this._visualYaw = visual;
-    const dv = Math.atan2(Math.sin(visual - this._visualYaw), Math.cos(visual - this._visualYaw));
-    this._visualYaw += dv * Math.min(1, dt * 14.0); // ゲームの向きの追いつき（delta * 14）
-    this.root.rotation.y = this._visualYaw;
+    this.root.rotation.y = facing;
+    const gait = this.gait;
+    if (gait) gait.restore();
     if (climb && this.actions.hanging) {
       // よじ登り: ぶら下がりのアニメ。動いている速さで回し、下りは逆回し
       this.play('hanging', 0.15);
       const m = Math.max(Math.abs(climb.upAxis), Math.abs(climb.sideAxis));
       const a = this.actions.hanging;
       a.timeScale = m < 0.12 ? 0.15 : (climb.upAxis < -0.12 ? -1 : 1) * Math.min(1.35, Math.max(0.7, m));
-      if (this.mixer) this.mixer.update(dt);
-      return;
+    } else if (!onGround) {
+      this.play('jump', 0.15);
+    } else if (gait && gait.ok) {
+      this.play('idle', 0.15);
+    } else {
+      // 骨が見つからないモデルはクリップで歩く
+      const speed = Math.hypot(vel.x, vel.z);
+      this.play(speed > RUN_SPEED_THRESHOLD ? 'run' : (speed > 0.4 ? 'walk' : 'idle'));
     }
-    if (!onGround) this.play('jump', 0.15);
-    else if (speed > RUN_SPEED_THRESHOLD && !back) this.play('run');
-    else if (speed > 0.4) this.play('walk');
-    else this.play('idle');
-    const a = this.actions[this.current];
-    if (a && (this.current === 'walk' || this.current === 'run')) {
-      // 足の運びを速さに合わせる（歩き 0.6〜1.1 倍、走り 0.8〜1.12 倍）
-      const pace = this.current === 'walk' ? Math.min(1.1, Math.max(0.6, speed / 3.5)) : Math.min(1.12, Math.max(0.8, speed / 9));
-      a.timeScale = back ? -pace : pace;
-    } else if (a) a.timeScale = 1;
     if (this.mixer) this.mixer.update(dt);
+    if (gait) {
+      gait.gaitOn = !climb && onGround;
+      gait.measure(dt, pos);
+      gait.apply(dt, pos, facing);
+    }
   }
 }

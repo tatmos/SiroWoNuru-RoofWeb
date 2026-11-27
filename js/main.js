@@ -141,6 +141,8 @@ const player = {
   onGround: true,
 };
 const playerView = new PlayerView(scene);
+// 足を置く床の高さ: top より下でいちばん高い面（groundAt は足元 + STEP まで拾うので、その分を引く）
+playerView.floorAt = (x, z, top) => groundAt(x, z, top - STEP);
 playerView.load('assets/models/player.glb').catch((e) => console.warn('player model', e));
 
 // 足元の高さ（屋上・板・坂・壁の上）
@@ -809,4 +811,4 @@ hud.refresh();
 xr.refreshMenu();
 renderer.setAnimationLoop(frame);
 document.body.classList.add('ready');
-window.__siro = { world, stock, player, rows, export3mf, toJson, chests, climber };
+window.__siro = { world, stock, player, rows, export3mf, toJson, chests, climber, playerView };
