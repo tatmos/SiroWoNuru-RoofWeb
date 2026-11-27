@@ -57,13 +57,28 @@ export class PlayerView {
     this.current = name;
   }
 
-  // vel: 水平の速度。体の向きに対して後ろへ進むときは歩きを逆回しにする
+  // facing: 体の向き（カメラの向き）。vel: 水平の速度。
+  // 横歩きのアニメが無いので、横へ動くときは見た目の体を進む向きへ回す。後ろへ動くときは前を向いたまま歩きを逆回し
   update(dt, pos, facing, vel, onGround, climb = null) {
     this.root.position.copy(pos);
-    this.root.rotation.y = facing;
     const speed = Math.hypot(vel.x, vel.z);
-    const along = vel.x * Math.sin(facing) + vel.z * Math.cos(facing);
-    const back = speed > 0.4 && along < -0.3 * speed;
+    let back = false;
+    let visual = facing;
+    if (!climb && speed > 0.4) {
+      const moveYaw = Math.atan2(vel.x, vel.z);
+      let d = Math.atan2(Math.sin(moveYaw - facing), Math.cos(moveYaw - facing));
+      if (Math.abs(d) > Math.PI * 0.62) {
+        // 後ろ向きに近い: 逆の向きを向いて逆回し（斜め後ろも同じ）
+        back = true;
+        d = Math.atan2(Math.sin(d + Math.PI), Math.cos(d + Math.PI));
+      }
+      visual = facing + d;
+    }
+    if (climb) this._visualYaw = facing;
+    if (this._visualYaw === undefined) this._visualYaw = visual;
+    const dv = Math.atan2(Math.sin(visual - this._visualYaw), Math.cos(visual - this._visualYaw));
+    this._visualYaw += dv * Math.min(1, dt * 14.0); // ゲームの向きの追いつき（delta * 14）
+    this.root.rotation.y = this._visualYaw;
     if (climb && this.actions.hanging) {
       // よじ登り: ぶら下がりのアニメ。動いている速さで回し、下りは逆回し
       this.play('hanging', 0.15);

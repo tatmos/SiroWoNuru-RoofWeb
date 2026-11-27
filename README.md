@@ -13,9 +13,12 @@
 
 ビルドはいりません。静的なファイルをそのまま配ります。コミットの前に `sh tools/stamp_version.sh` を流すと、画面の左上に出るビルド番号と時刻（`version.js`）が更新されます。
 
+Windows では `start.bat` をダブルクリックすると、サーバーが立ち上がってブラウザで開きます（窓を閉じると止まります）。
+中身は `python tools/serve.py 8765` です。ブラウザにキャッシュさせないので、ファイルを直したら読み込み直すだけで反映されます。
+
 ```sh
-python -m http.server 8000
-# http://localhost:8000/ を開く
+python tools/serve.py 8765
+# http://localhost:8765/ を開く
 ```
 
 ## ファイル
