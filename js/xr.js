@@ -144,28 +144,15 @@ export class XrControls {
   }
 
   // 右手首の扇（ゲームの player_avatar_place_guide.gd の bracelet fan と同じ形・大きさ）。
-  // 角丸の紺の板を手首の上に弧に並べ、目に向ける。持っている品は大きく明るく、両わきは小さく暗く。数は右下に「×N」
+  // 角丸の紺の板を手首の上に弧に並べ、目に向ける。カーソルの板は大きく、両わきは小さく暗く。数は右下に「×N」。
+  // 中身はデスクトップの扇と同じページ（いちばん上 → マジックペンの靴 → 7 色。ゲームの入れ物の 2 階層目と同じ）
   _buildMenu() {
     this.fanRoot = new THREE.Group();
     this.fanRoot.visible = false;
     this.scene.add(this.fanRoot);
-    this.fanSlots = this.o.items.map((it, i) => {
-      const c = document.createElement('canvas');
-      c.width = c.height = 256;
-      const tex = new THREE.CanvasTexture(c);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false });
-      const spr = new THREE.Sprite(mat);
-      spr.renderOrder = 60;
-      this.fanRoot.add(spr);
-      const slot = { i, it, c, tex, spr, img: null, cur: null, pen: null };
-      if (it.art) {
-        const img = new Image();
-        img.onload = () => { slot.img = img; slot.cur = null; };
-        img.src = it.art;
-      }
-      return slot;
-    });
+    this.fanSlots = [];
+    this.fanPageName = '';
+    this.fanImgs = {};
     // 数（×N）
     const cc = document.createElement('canvas');
     cc.width = 256; cc.height = 96;
@@ -177,15 +164,50 @@ export class XrControls {
     this.countSpr.scale.set(FAN_COUNT_W, FAN_COUNT_W * 96 / 256, 1);
     this.fanRoot.add(this.countSpr);
     this._countText = '';
-    this.fanPos = this.o.getSelected();
+    this._setFanPage('main');
+    this.fanPos = this.fanCursor;
   }
 
-  // 板を 1 枚描く（いま持っている板は明るく）
+  // ページの板を作りなおす
+  _setFanPage(name, keepCursor = -1) {
+    for (const s of this.fanSlots) { this.fanRoot.remove(s.spr); s.tex.dispose(); s.spr.material.dispose(); }
+    const pg = this.o.fanPage(name);
+    this.fanPageName = name;
+    this.fanEntries = pg.entries;
+    const n = this.fanEntries.length;
+    this.fanCursor = keepCursor >= 0 ? Math.min(keepCursor, n - 1) : Math.max(0, Math.min(n - 1, pg.cursor | 0));
+    this.fanPos = this.fanCursor;
+    this.fanSlots = this.fanEntries.map((e, i) => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 256;
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
+      spr.renderOrder = 60;
+      spr.visible = false;
+      this.fanRoot.add(spr);
+      return { i, e, c, tex, spr, key: null };
+    });
+  }
+
+  _img(url) {
+    let im = this.fanImgs[url];
+    if (!im) {
+      im = new Image();
+      im.onload = () => this.refreshMenu();
+      im.src = url;
+      this.fanImgs[url] = im;
+    }
+    return im.complete && im.naturalWidth ? im : null;
+  }
+
+  // 板を 1 枚描く（持っている品・いまの色は明るく）
   _drawSlot(slot, cur) {
-    const penHex = slot.it.kind === 'pen' && this.o.penColor ? this.o.penColor() : null;
-    if (slot.cur === cur && slot.pen === penHex) return;
-    slot.cur = cur;
-    slot.pen = penHex;
+    const e = slot.e;
+    const img = e.art ? this._img(e.art) : null;
+    const key = `${cur}|${e.swatch || ''}|${img ? 1 : 0}|${e.label}`;
+    if (slot.key === key) return;
+    slot.key = key;
     const g = slot.c.getContext('2d');
     const n = 256, r = n * 0.2, rim = n * 0.045;
     g.clearRect(0, 0, n, n);
@@ -203,41 +225,50 @@ export class XrControls {
     g.fill();
     // 絵（板の 8 割）
     const fill = n * 0.8, o = (n - fill) / 2;
-    if (slot.img) {
+    const sw = e.swatch ? swatchFill(g, e.swatch, n) : null;
+    if (img) {
       g.save();
       roundRect(g, o, o, fill, fill, r * 0.6);
       g.clip();
-      const iw = slot.img.width, ih = slot.img.height, k = Math.max(fill / iw, fill / ih);
-      g.drawImage(slot.img, n / 2 - iw * k / 2, n / 2 - ih * k / 2, iw * k, ih * k);
+      const iw = img.width, ih = img.height, k = Math.max(fill / iw, fill / ih);
+      g.drawImage(img, n / 2 - iw * k / 2, n / 2 - ih * k / 2, iw * k, ih * k);
       g.restore();
+    } else if (sw && !e.sym) {
+      // 色の見本（靴のテーマ・ペンの色）
+      roundRect(g, o + 10, o + 4, fill - 20, fill - 46, r * 0.5);
+      g.fillStyle = sw;
+      g.fill();
+      g.lineWidth = 4;
+      g.strokeStyle = 'rgba(255,255,255,0.55)';
+      g.stroke();
     } else {
-      if (penHex) {
-        g.fillStyle = penHex;
+      if (sw) {
+        g.fillStyle = sw;
         g.beginPath(); g.arc(n / 2, n / 2 - 18, n * 0.2, 0, Math.PI * 2); g.fill();
       }
       g.fillStyle = '#fff';
       g.font = 'bold 110px system-ui, sans-serif';
       g.textAlign = 'center';
       g.textBaseline = 'middle';
-      g.fillText(slot.it.kind === 'pen' ? '✎' : '⤺', n / 2, n / 2 - 18);
+      g.fillText(e.sym || '', n / 2, n / 2 - 18);
     }
     // 名前（暗い縁どり）
-    g.font = `bold ${slot.it.label.length > 4 ? 30 : 38}px system-ui, sans-serif`;
+    const lab = String(e.label);
+    g.font = `bold ${lab.length > 5 ? 26 : (lab.length > 4 ? 30 : 38)}px system-ui, sans-serif`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.lineJoin = 'round';
     g.lineWidth = 9;
     g.strokeStyle = 'rgba(5,8,15,0.95)';
-    const ly = n * 0.8;
-    g.strokeText(slot.it.label, n / 2, ly);
+    g.strokeText(lab, n / 2, n * 0.8, n * 0.86);
     g.fillStyle = '#fff';
-    g.fillText(slot.it.label, n / 2, ly);
+    g.fillText(lab, n / 2, n * 0.8, n * 0.86);
     slot.tex.needsUpdate = true;
   }
 
   refreshMenu() {
     if (!this.fanSlots) return;
-    for (const s of this.fanSlots) s.cur = null;
+    for (const s of this.fanSlots) s.key = null;
   }
 
   // 毎フレーム（VR の描画の前）。手首の上に扇を置く
@@ -245,6 +276,8 @@ export class XrControls {
     const r = this.hands.right;
     if (!r || !r.source) { this.fanRoot.visible = false; return; }
     this.fanRoot.visible = true;
+    // 閉じているあいだは、いちばん上のページの持っている品の板だけを手首に出す（ゲームの held_only）
+    if (!this.fanOpen && this.fanPageName !== 'main') this._setFanPage('main');
     const n = this.fanSlots.length;
     const held = this.o.getSelected();
     const sel = this.fanOpen ? this.fanCursor : held;
@@ -270,7 +303,6 @@ export class XrControls {
       let d = slot.i - this.fanPos;
       d -= Math.round(d / n) * n;
       const ad = Math.abs(d);
-      // 閉じているあいだは、持っている品の板だけを手首に出す（ゲームの held_only）
       if (ad > FAN_SIDE_COUNT + 0.5 || (!this.fanOpen && slot.i !== held)) { slot.spr.visible = false; continue; }
       const deg = d * FAN_STEP_DEG + Math.sign(d) * Math.min(ad, 1) * FAN_GAP_DEG;
       const a = deg * Math.PI / 180;
@@ -281,19 +313,19 @@ export class XrControls {
       const size = FAN_PIXEL * sc * 256;
       slot.spr.scale.set(size, size, 1);
       const dim = FAN_SIDE_DIM + (1 - FAN_SIDE_DIM) * near;
-      const empty = slot.it.kind !== 'pickup' && slot.it.kind !== 'pen' && (this.o.stock[slot.it.kind] | 0) <= 0;
+      const empty = slot.e.empty && slot.e.empty();
       slot.spr.material.color.setScalar(dim * (empty ? 0.6 : 1));
       // 真ん中に近いほど後に描く（手前に見える）
       slot.spr.renderOrder = 60 + Math.round((FAN_SIDE_COUNT + 1 - ad) * 3);
       slot.spr.visible = true;
-      this._drawSlot(slot, slot.i === held);
+      this._drawSlot(slot, !!(slot.e.held && slot.e.held()));
     }
-    // 数は持っている板の右下の角（建材だけ）
-    const it = this.o.items[held];
-    const showCount = !!it && it.kind !== 'pickup' && it.kind !== 'pen';
+    // 数はカーソルの板の右下の角（建材だけ）
+    const ent = this.fanEntries[sel];
+    const showCount = !!(ent && ent.empty && ent.count);
     this.countSpr.visible = showCount;
     if (showCount) {
-      const cnt = this.o.stock[it.kind] | 0;
+      const cnt = Number(ent.count()) | 0;
       const t = `×${cnt}`;
       if (t !== this._countText) {
         this._countText = t;
@@ -470,28 +502,32 @@ export class XrControls {
 
   // スティック・グリップ: 扇を開いてカーソルを動かす（持ちかえは A か右の引き金で決めたとき。ゲームの fan_step）
   _cycle(dir) {
-    const n = this.o.items.length;
-    this.openFan();
+    if (!this.fanOpen) this.openFan();
+    const n = this.fanEntries.length;
     this.fanCursor = (this.fanCursor + dir + n) % n;
     this._pulse('right', 0.3, 30);
   }
 
-  // ゲームの fan_confirm: カーソルの品を持って扇を閉じる
+  // ゲームの fan_confirm: カーソルの項目を決める。次のページ（ペンの色など）が返れば、扇は開いたままそのページへ
   confirmFan() {
     if (!this.fanOpen) return;
-    this.o.select(this.fanCursor);
-    this.fanOpen = false;
+    const e = this.fanEntries[this.fanCursor];
+    const next = e && e.run ? e.run() : null;
     this._pulse('right', 0.45, 50);
+    if (!next) { this.fanOpen = false; this._setFanPage('main'); return; }
+    // 同じページのまま（取り消しなど）は、カーソルをその項目に残す
+    this._setFanPage(next, next === this.fanPageName ? this.fanCursor : -1);
   }
 
   closeFan() {
     this.fanOpen = false;
+    this._setFanPage('main');
   }
 
-  openFan() {
-    if (this.fanOpen) return;
+  openFan(page = 'main') {
+    if (this.fanOpen && this.fanPageName === page) return;
     this.fanOpen = true;
-    this.fanCursor = this.o.getSelected();
+    this._setFanPage(page);
     if (this._placing) { this._placing = false; this.o.endPress(true); }
     this._pulse('right', 0.4, 50);
   }
@@ -502,6 +538,16 @@ export class XrControls {
     const h = gp && gp.hapticActuators && gp.hapticActuators[0];
     try { if (h && h.pulse) h.pulse(amp, ms); } catch { /* 振動できない機種 */ }
   }
+}
+
+// 見本の色。'#rrggbb' か、デスクトップの扇の linear-gradient(...) から色を拾って斜めのグラデーションにする
+function swatchFill(g, sw, n) {
+  const cols = String(sw).match(/#[0-9a-fA-F]{6}|rgba?\([^)]*\)/g);
+  if (!cols || !cols.length) return null;
+  if (cols.length === 1) return cols[0];
+  const gr = g.createLinearGradient(0, 0, n, n);
+  cols.forEach((c, i) => gr.addColorStop(i / (cols.length - 1), c));
+  return gr;
 }
 
 function roundRect(g, x, y, w, h, r) {

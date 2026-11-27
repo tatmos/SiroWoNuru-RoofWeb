@@ -549,9 +549,8 @@ try { Object.assign(pen, JSON.parse(localStorage.getItem('siro_roof_web_pen') ||
 
 function openPenPalette() {
   if (renderer.xr.isPresenting) {
-    // VR では色えらびを出せないので、7色の靴の赤で塗る
-    setPenColor(0, 0);
-    xr.notice('ペンの色: 赤（色は PC かスマホで選べます）');
+    // VR は手首の扇で靴の色をえらぶ（ゲームと同じ）
+    xr.openFan('pen-shoes');
     return;
   }
   if (useCenterAim) hud.showPalette(SHOE_THEMES, (si, ci) => setPenColor(si, ci));
@@ -1019,6 +1018,8 @@ const links = new LinkBoards(scene, {
 const xr = new XrControls(renderer, scene, rig, camera, {
   items: ITEMS,
   penColor: () => penColorHex(),
+  // 手首の扇の中身はデスクトップの扇と同じページ
+  fanPage: (name) => fan.o.page(name),
   stock,
   getSelected: () => selected,
   select: selectItem,
