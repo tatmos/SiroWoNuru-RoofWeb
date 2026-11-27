@@ -40,7 +40,6 @@ export class XrControls {
     this.hands = {};
     this._prev = {};
     this._turnLatch = false;
-    this.placeMode = false;
     this.fanOpen = false;
     this.fanCursor = 0;
     this._aConsumed = false;
@@ -49,7 +48,7 @@ export class XrControls {
     this.grip_right = -1;
     this._menuDirty = true;
     for (let i = 0; i < 2; i++) this._setupController(i);
-    renderer.xr.addEventListener('sessionend', () => { document.body.classList.remove('in-vr'); this.setPlaceMode(false); this.o.onEnd(); });
+    renderer.xr.addEventListener('sessionend', () => { document.body.classList.remove('in-vr'); this.fanOpen = false; this.o.onEnd(); });
     this._buildMenu();
     this._noticeMesh = null;
   }
@@ -86,7 +85,7 @@ export class XrControls {
         if (saved) Object.defineProperty(proto, 'createProjectionLayer', saved);
       }
       this.firstFramePending = true;
-      this.notice('B で配置モード（右の引き金で置く）');
+      this.notice('右の引き金で置く（長押しで壁） ／ B でメニュー');
       document.body.classList.add('in-vr');
       step('VR を開始しました');
       setTimeout(() => { if (this.renderer.xr.isPresenting) this.status(''); }, 4000);
@@ -244,7 +243,7 @@ export class XrControls {
   // 毎フレーム（VR の描画の前）。手首の上に扇を置く
   updateFan(dt) {
     const r = this.hands.right;
-    if (!r || !r.source || !this.placeMode) { this.fanRoot.visible = false; return; }
+    if (!r || !r.source) { this.fanRoot.visible = false; return; }
     this.fanRoot.visible = true;
     const n = this.fanSlots.length;
     const held = this.o.getSelected();
@@ -387,8 +386,8 @@ export class XrControls {
 
   // ゲームの VR と同じボタン（xr_rig.gd → パッドの割り当て → player_avatar_gamepad.gd）
   //   左スティック 歩く ／ 左スティック押しこみ（押しているあいだ） 走る
-  //   右スティック 向きを変える。配置モード中は左右で建材の切りかえ
-  //   A ジャンプ ／ B 配置モードのオン・オフ（オンで手首の扇とガイドが出る）
+  //   右スティック 向きを変える
+  //   A ジャンプ ／ B 扇（メニュー）を出す・閉じる。扇を出しているあいだは A・右の引き金で決定、右スティックで選ぶ
   //   右の引き金 置く（押す: 床、長押し: 壁） ／ 左の引き金 回収 ／ 左の引き金を押したまま右の引き金 取り消し
   //   グリップを短く押す 建材の切りかえ（左 前・右 次）
   update(dt) {
@@ -406,8 +405,8 @@ export class XrControls {
       this.snapTurn = !this.snapTurn;
       this.notice(this.snapTurn ? '回転: スナップ（30°）' : '回転: なめらか');
     }
-    if (this.placeMode) {
-      // 配置モード中の右スティック左右は建材の切りかえ（ゲームの _poll_place_stick_cycle: 0.62 で入り 0.32 で戻る）
+    if (this.fanOpen) {
+      // 扇を開いているあいだの右スティック左右はカーソル（向きは変えない）（ゲームの _poll_place_stick_cycle: 0.62 で入り 0.32 で戻る）
       if (rx > 0.62) {
         if (this._cycleLatch !== 1) { this._cycleLatch = 1; this._cycle(1); }
       } else if (rx < -0.62) {
@@ -428,10 +427,10 @@ export class XrControls {
     if (a === 1 && this.fanOpen) { this.confirmFan(); this._aConsumed = true; }
     else if (a === 1) { this.o.input.jump = true; this._aConsumed = false; }
     this.jumpHeld = this._pressed('right', 4) && !this._aConsumed;
-    // B: 扇を開いていれば閉じる（持ちかえない）。閉じていれば配置モードのオン・オフ
+    // B: 扇を出す／閉じる（デスクトップの右クリックと同じ。閉じるときは持ちかえない）
     if (this._edge('right', 5) === 1) {
       if (this.fanOpen) this.closeFan();
-      else this.setPlaceMode(!this.placeMode);
+      else this.openFan();
     }
     // グリップの短押し（220ms 以内）で切りかえ
     for (const [hand, dir] of [['left', -1], ['right', 1]]) {
@@ -439,7 +438,7 @@ export class XrControls {
       const key = `grip_${hand}`;
       if (g === 1) this[key] = performance.now();
       else if (g === -1 && this[key] >= 0) {
-        if (performance.now() - this[key] <= SHOULDER_TAP_MS) { this.setPlaceMode(true); this._cycle(dir); }
+        if (performance.now() - this[key] <= SHOULDER_TAP_MS) { this._cycle(dir); }
         this[key] = -1;
       }
     }
@@ -459,7 +458,7 @@ export class XrControls {
     } else if (trig === 1) {
       const o = new THREE.Vector3(), d = new THREE.Vector3();
       this.aimRay(o, d);
-      if (!this.o.handleRay(o, d) && this.placeMode) { this._placing = true; this.o.beginPress(); }
+      if (!this.o.handleRay(o, d)) { this._placing = true; this.o.beginPress(); }
     } else if (trig === -1 && this._placing) {
       this._placing = false;
       this.o.endPress(false);
@@ -472,11 +471,7 @@ export class XrControls {
   // スティック・グリップ: 扇を開いてカーソルを動かす（持ちかえは A か右の引き金で決めたとき。ゲームの fan_step）
   _cycle(dir) {
     const n = this.o.items.length;
-    if (!this.fanOpen) {
-      this.fanOpen = true;
-      this.fanCursor = this.o.getSelected();
-      if (this._placing) { this._placing = false; this.o.endPress(true); }
-    }
+    this.openFan();
     this.fanCursor = (this.fanCursor + dir + n) % n;
     this._pulse('right', 0.3, 30);
   }
@@ -493,12 +488,12 @@ export class XrControls {
     this.fanOpen = false;
   }
 
-  setPlaceMode(on) {
-    if (on === this.placeMode) return;
-    this.placeMode = on;
-    if (!on) this.fanOpen = false;
-    if (!on && this._placing) { this._placing = false; this.o.endPress(true); }
-    this._pulse('right', on ? 0.4 : 0.25, 60);
+  openFan() {
+    if (this.fanOpen) return;
+    this.fanOpen = true;
+    this.fanCursor = this.o.getSelected();
+    if (this._placing) { this._placing = false; this.o.endPress(true); }
+    this._pulse('right', 0.4, 50);
   }
 
   _pulse(hand, amp, ms) {
