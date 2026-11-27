@@ -15,7 +15,7 @@ import { FanMenu } from './fan.js';
 import { XrControls } from './xr.js';
 import { Chests } from './chests.js';
 import { LinkBoards } from './links.js';
-import { playPlace, playPickup, playChest, playLand, Steps } from './sound.js';
+import { playPlace, playPickup, playChest, playLand, Steps, playUndo } from './sound.js';
 import { Climber } from './climb.js';
 
 const PLACE_MAX_RANGE = 10.0;
@@ -91,6 +91,48 @@ function removePiece(p) {
   disposeObject(p.mesh);
 }
 
+// --- 取り消し（ゲームの match_placement_undo.gd: 置く・回収・ペンで塗るを、新しい順に戻す。32 件まで） ---
+const PLACE_UNDO_MAX = 32;
+const undoStack = [];
+function pushUndo(entry) {
+  undoStack.push(entry);
+  while (undoStack.length > PLACE_UNDO_MAX) undoStack.shift();
+}
+const pieceOfRow = (row) => world.pieces.find((p) => p.row === row);
+
+function undoLast() {
+  while (undoStack.length) {
+    const e = undoStack.pop();
+    if (e.op === 'place') {
+      // 置いたものを回収する（持ち物に戻す）
+      const p = pieceOfRow(e.row);
+      if (!p) continue;
+      removePiece(p);
+      if (p.kind in stock) stock[p.kind] += 1;
+    } else if (e.op === 'pickup') {
+      // 回収したものを元の場所へ戻す（持ち物から 1 つ使う）
+      if (e.row.kind in stock && (stock[e.row.kind] | 0) <= 0) continue;
+      addRow(e.row);
+      if (e.row.kind in stock) stock[e.row.kind] -= 1;
+    } else if (e.op === 'paint') {
+      // 塗る前の色へ戻す（そのあと別の色で塗りなおしていたら戻さない）
+      const p = pieceOfRow(e.row);
+      if (!p) continue;
+      const row = { ...e.row, paint_color: e.prev };
+      removePiece(p);
+      addRow(row);
+      // さらに前の操作の取り消しが、戻した建材を指せるように
+      for (const u of undoStack) if (u.row === e.row) u.row = row;
+    } else continue;
+    playUndo();
+    save();
+    hud.refresh();
+    return true;
+  }
+  hud.toast('取り消せる操作がありません');
+  return false;
+}
+
 function clearPieces() {
   for (const p of world.pieces.slice()) removePiece(p);
 }
@@ -101,6 +143,7 @@ function rows() {
 
 function replaceRows(list) {
   clearPieces();
+  undoStack.length = 0;
   for (const r of list) if (isBuildingKind(r.kind)) addRow(r);
   save();
 }
@@ -477,6 +520,9 @@ function paintPiece(p) {
   const row = { ...p.row, paint_color: [...rgb, 1] };
   removePiece(p);
   addRow(row);
+  // 前の塗りの取り消しが、新しい建材を指すように付けかえる
+  for (const u of undoStack) if (u.row === p.row) u.row = row;
+  pushUndo({ op: 'paint', row, prev: p.row.paint_color || null });
   playPlace('glass');
   save();
   return true;
@@ -486,6 +532,7 @@ function evaluateAim(origin, dir) {
   const kind = kindSelected();
   // 回収とマジックペンは、ねらった建材を選ぶ
   aimState.pickMode = kind === 'pickup' || kind === 'pen';
+  aimState.pen = kind === 'pen';
   const hit = castAim(origin, dir);
   aimState.hit = hit;
   aimState.target = null;
@@ -560,6 +607,7 @@ function commitPress() {
     const p = aimState.pickPiece;
     if (p) {
       removePiece(p);
+      pushUndo({ op: 'pickup', row: p.row });
       playPickup();
       if (p.kind in stock) stock[p.kind] += 1;
       save();
@@ -571,7 +619,8 @@ function commitPress() {
   const t = aimState.target;
   if (!t) return;
   if (!t.ok) { if (aimState.reason) hud.toast(aimState.reason); return; }
-  addRow(targetRow(t));
+  const placed = addRow(targetRow(t));
+  pushUndo({ op: 'place', row: placed.row });
   playPlace(t.kind);
   stock[t.kind] -= 1;
   save();
@@ -624,6 +673,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyF') selectItem(selected === 4 ? 0 : 4);
   if (e.code === 'KeyR') chests.tryOpenNear(player.pos, 2.2);
   if (e.code === 'Escape' && fan.open) fan.close();
+  if (e.code === 'KeyZ' && (e.ctrlKey || e.metaKey)) { undoLast(); e.preventDefault(); }
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
 window.addEventListener('blur', () => keys.clear());
@@ -811,6 +861,8 @@ const fan = new FanMenu({
           // ペンは選ぶと色えらびへ（ゲームの「入れ物」と同じく扇の 2 階層目）
           run: () => { selectItem(i); return it.kind === 'pen' ? 'pen-shoes' : null; },
         })),
+        // 取り消し（ゲームと同じく、選んでも扇は開いたまま）
+        { label: '取り消し', sym: '↶', count: () => undoStack.length || '', run: () => { undoLast(); return 'main'; } },
         { label: 'とじる', sym: '×', run: () => null },
       ],
     };
@@ -825,6 +877,7 @@ const fan = new FanMenu({
 });
 
 const hud = new Hud({
+  undo: () => undoLast(),
   penColor: () => penColorHex(),
   penPalette: () => openPenPalette(),
   items: ITEMS,

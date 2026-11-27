@@ -4,6 +4,7 @@ const FILES = {
   place_wall: 'assets/sfx/sfx_place_wall.wav',
   set: 'assets/sfx/set.wav',
   chest: 'assets/sfx/sfx_chest.wav',
+  undo: 'assets/sfx/sfx_undo.wav',
   // 屋上の床・レンガ・大理石はゲームでは「concrete」の着地音。高く落ちたら重い岩の音
   land_concrete: 'assets/sfx/sfx_landing_concrete.wav',
   land_heavy_rock1: 'assets/sfx/sfx_landing_heavy_rock1.wav',
@@ -121,4 +122,9 @@ export class Steps {
     playRaw('land_concrete', LAND_STEP_BASE_DB + (this.first ? -6.02 : -12.04) + quiet, jitter());
     this.first = false;
   }
+}
+
+// 取り消しの音（ゲームの play_undo: -4 dB と置く音の -6 dB）
+export function playUndo() {
+  play('undo', -4.0 + PLACE_SFX_DB);
 }

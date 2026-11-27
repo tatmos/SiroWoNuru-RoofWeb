@@ -71,8 +71,11 @@ export class FanMenu {
     if (!this.open) return;
     const e = this.entries[this.cursor];
     const next = e && e.run ? e.run() : null;
-    if (next) this._setPage(next);
-    else this.close();
+    if (!next) { this.close(); return; }
+    // 同じページのまま（取り消しなど）は、カーソルをその項目に残す
+    const keep = next === this.page ? this.cursor : -1;
+    this._setPage(next);
+    if (keep >= 0) this.cursor = Math.min(keep, this.entries.length - 1);
   }
 
   // クリックした板があればそれを決める

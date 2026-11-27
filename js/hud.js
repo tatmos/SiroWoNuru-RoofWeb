@@ -42,6 +42,7 @@ export class Hud {
       file.value = '';
     };
     $('btn-export-3mf').onclick = () => this.o.export3mf($('chk-base').checked);
+    $('btn-undo').onclick = () => this.o.undo();
     $('btn-sample').onclick = () => { if (confirm('いまの屋上の建材を消して、見本の建物を読み込みますか？')) this.o.loadSample(); };
     $('btn-clear').onclick = () => { if (confirm('屋上の建材をすべて消しますか？（持ち物の数は戻りません）')) this.o.clearAll(); };
     $('btn-respawn').onclick = () => this.o.respawn();
@@ -83,7 +84,7 @@ export class Hud {
 
   setAimHint(aim, inXr) {
     let t = '';
-    if (aim.pickMode) t = aim.pickPiece ? 'クリックで回収' : '';
+    if (aim.pickMode) t = aim.pickPiece ? (aim.pen ? 'クリックで塗る（Ctrl+Z で取り消し）' : 'クリックで回収') : '';
     else if (aim.target) {
       if (!aim.target.ok) t = aim.reason || '';
       else if (aim.pressing && performance.now() - aim.pressAt >= 220) t = '放すと壁';
