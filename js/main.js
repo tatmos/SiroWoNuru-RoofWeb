@@ -400,7 +400,34 @@ const aimState = {
   reason: '',
 };
 let ghost = null;
-let pickHighlight = null;
+// 回収する建材の輪郭（形どおりの線。暖簾は揺れに合わせて毎フレーム追う）
+const OUTLINE_MAT = new THREE.LineBasicMaterial({ color: 0x40ff90, transparent: true, opacity: 0.95, depthTest: false });
+let pickOutline = null; // {piece, group, pairs: [[mesh, line]]}
+function showPickOutline(piece) {
+  if (pickOutline && pickOutline.piece !== piece) {
+    scene.remove(pickOutline.group);
+    pickOutline.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+    pickOutline = null;
+  }
+  if (!piece) return;
+  if (!pickOutline) {
+    const group = new THREE.Group();
+    group.renderOrder = 5;
+    const pairs = [];
+    piece.mesh.traverse((m) => {
+      if (!m.isMesh) return;
+      const line = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry, 25), OUTLINE_MAT);
+      line.matrixAutoUpdate = false;
+      line.renderOrder = 5;
+      group.add(line);
+      pairs.push([m, line]);
+    });
+    scene.add(group);
+    pickOutline = { piece, group, pairs };
+  }
+  piece.mesh.updateMatrixWorld(true);
+  for (const [m, line] of pickOutline.pairs) line.matrix.copy(m.matrixWorld);
+}
 
 function kindSelected() { return ITEMS[selected].kind; }
 
@@ -455,22 +482,11 @@ function updateGhost() {
   if (key && key === ghostKey && ghost) return;
   ghostKey = key;
   if (ghost) { piecesRoot.remove(ghost); disposeObject(ghost); ghost = null; }
-  if (pickHighlight) { pickHighlight.visible = false; }
   if (aimState.pickMode) {
-    const p = aimState.pickPiece;
-    if (p) {
-      if (!pickHighlight) {
-        pickHighlight = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1),
-          new THREE.MeshBasicMaterial({ color: 0x40ff90, wireframe: true }));
-        scene.add(pickHighlight);
-      }
-      const b = new THREE.Box3().setFromObject(p.mesh);
-      b.getCenter(pickHighlight.position);
-      b.getSize(pickHighlight.scale).addScalar(0.04);
-      pickHighlight.visible = true;
-    }
+    showPickOutline(aimState.pickPiece);
     return;
   }
+  showPickOutline(null);
   const t = aimState.target;
   if (!t || t.hidden) return;
   const p = new Piece(targetRow(t));
