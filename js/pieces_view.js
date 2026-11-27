@@ -104,9 +104,9 @@ export function materialFor(kind, paint = null, ghost = null) {
     m = new THREE.MeshStandardMaterial({ map: getBrickTexture(), normalMap: getBrickNormal(), roughness: 0.92, metalness: 0 });
     m.normalScale.set(BRICK_NORMAL_SCALE, BRICK_NORMAL_SCALE);
   }
-  if (paint && paint[3] > 0 && kind !== 'glass' && kind !== 'curtain' && kind !== 'marble') {
-    m.color.setRGB(paint[0], paint[1], paint[2], THREE.SRGBColorSpace);
-  }
+  // マジックペンの色（ゲームの _apply_pickup_highlight と同じく、どの建材も色だけ置きかえる。
+  // ガラスは透明さ、レンガ・大理石は模様をそのまま残す）
+  if (paint && paint[3] > 0) m.color.setRGB(paint[0], paint[1], paint[2], THREE.SRGBColorSpace);
   if (ghost) {
     m = m.clone();
     m.transparent = true;

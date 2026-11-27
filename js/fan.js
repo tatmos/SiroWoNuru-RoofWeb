@@ -13,56 +13,69 @@ const SIDE_SCALE = 0.72;
 const SIDE_DIM = 0.62;
 
 export class FanMenu {
-  // o: {items, stock, getSelected, select(i), anchor() -> {x, y}（右手の画面位置）}
+  // o: {page(name) -> {entries: [{label, art?, sym?, swatch?, count?, held?, empty?, run() -> 次のページ名 | null}], cursor},
+  //     anchor() -> {x, y}（右手の画面位置）}
+  // 項目を選ぶと run() する。ページ名が返れば、扇は開いたままそのページへ（入れ物の 2 階層目。ゲームと同じ）
   constructor(o) {
     this.o = o;
     this.open = false;
     this.cursor = 0;
     this.t = 0; // 開き具合 0..1
+    this.page = 'main';
+    this.entries = [];
+    this.slots = [];
     this.el = document.createElement('div');
     this.el.id = 'fan';
     document.body.appendChild(this.el);
-    // 項目と、最後に「とじる」
-    this.entries = [...o.items.map((it, i) => ({ ...it, index: i })), { kind: 'close', label: 'とじる', art: '', index: -1 }];
+    this.hint = document.createElement('div');
+    this.hint.className = 'fan-hint';
+    this.hint.textContent = 'ホイールで選ぶ ／ 左クリックで決める ／ 右クリックで閉じる';
+    this.el.appendChild(this.hint);
+  }
+
+  _setPage(name) {
+    this.page = name;
+    const pg = this.o.page(name);
+    this.entries = pg.entries;
+    this.cursor = Math.max(0, Math.min(this.entries.length - 1, pg.cursor | 0));
+    for (const d of this.slots) d.remove();
     this.slots = this.entries.map((e) => {
       const d = document.createElement('div');
       d.className = 'fan-slot';
-      d.innerHTML = e.art
-        ? `<span class="art" style="background-image:url('${e.art}')"></span><span class="lab">${e.label}</span><span class="n"></span>`
-        : `<span class="art sym">${e.kind === 'pickup' ? '⤺' : '×'}</span><span class="lab">${e.label}</span><span class="n"></span>`;
-      this.el.appendChild(d);
+      const art = e.art
+        ? `<span class="art" style="background-image:url('${e.art}')"></span>`
+        : (e.swatch ? `<span class="art swatch" style="background:${e.swatch}"></span>` : `<span class="art sym">${e.sym || ''}</span>`);
+      d.innerHTML = `${art}<span class="lab">${e.label}</span><span class="n"></span>`;
+      this.el.insertBefore(d, this.hint);
       return d;
     });
-    this.hint = document.createElement('div');
-    this.hint.className = 'fan-hint';
-    this.hint.textContent = 'ホイールで選ぶ ／ 左クリックで持つ ／ 右クリックで閉じる';
-    this.el.appendChild(this.hint);
   }
 
   toggle() { if (this.open) this.close(); else this.show(); }
 
-  show() {
+  show(page = 'main') {
     this.open = true;
-    this.cursor = this.o.getSelected();
+    this._setPage(page);
     this.el.classList.add('on');
   }
 
   close() { this.open = false; }
 
   step(dir) {
-    if (!this.open) return;
+    if (!this.open || !this.entries.length) return;
     this.cursor = (this.cursor + dir + this.entries.length) % this.entries.length;
   }
 
-  // 左クリック: カーソルの項目を持って閉じる
+  // 左クリック: カーソルの項目を決める
   confirm() {
     if (!this.open) return;
     const e = this.entries[this.cursor];
-    if (e.index >= 0) this.o.select(e.index);
-    this.close();
+    const next = e && e.run ? e.run() : null;
+    if (next) this._setPage(next);
+    else this.close();
   }
 
-  // クリックした板があればそれを持つ
+  // クリックした板があればそれを決める
   clickAt(x, y) {
     for (let i = 0; i < this.slots.length; i++) {
       const r = this.slots[i].getBoundingClientRect();
@@ -105,11 +118,11 @@ export class FanMenu {
       slot.style.filter = `brightness(${dim})`;
       slot.classList.toggle('cur', ad < 0.5);
       const ent = this.entries[i];
-      slot.classList.toggle('held', ent.index === this.o.getSelected());
+      slot.classList.toggle('held', !!(ent.held && ent.held()));
       const num = slot.querySelector('.n');
-      const cnt = ent.kind in this.o.stock ? String(this.o.stock[ent.kind] | 0) : '';
+      const cnt = ent.count ? String(ent.count()) : '';
       if (num.textContent !== cnt) num.textContent = cnt;
-      slot.classList.toggle('empty', ent.kind in this.o.stock && (this.o.stock[ent.kind] | 0) <= 0);
+      slot.classList.toggle('empty', !!(ent.empty && ent.empty()));
       slot.style.zIndex = String(10 - Math.round(ad));
     });
     this.hint.style.transform = `translate(${a0.x}px, ${a0.y + 40}px) translate(-50%, 0)`;

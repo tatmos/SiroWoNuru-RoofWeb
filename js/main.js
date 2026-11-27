@@ -30,6 +30,7 @@ export const ITEMS = [
   { kind: 'curtain', label: '暖簾', card: 'stock_curtain', art: 'assets/cards/stock_curtain.png' },
   { kind: 'marble', label: '大理石', card: 'stock_marble', art: 'assets/textures/marble_white_diff_1k.jpg' },
   { kind: 'pickup', label: '回収', card: '', art: '' },
+  { kind: 'pen', label: 'マジックペン', card: '', art: '' },
 ];
 
 // --- three.js ---
@@ -431,9 +432,60 @@ function showPickOutline(piece) {
 
 function kindSelected() { return ITEMS[selected].kind; }
 
+// --- マジックペン（ゲームの magic_pen.gd・shoe_defs.gd）: 靴のテーマの 7 色から選び、建材を模様のまま塗りかえる ---
+const SHOE_THEMES = [
+  ['rainbow', '7色の靴', ['#ff2d3d', '#ff8a1f', '#ffe11f', '#2dd84a', '#2d9cff', '#3b4bff', '#b03dff']],
+  ['fancy', 'ファンシー靴', ['#ff7ac8', '#b79cff', '#7fffd4', '#fff27a', '#7ad7ff', '#ffb48a', '#e65cff']],
+  ['pastel', 'パステル靴', ['#ffc2d4', '#ffd8b8', '#fff3b0', '#c5f0c8', '#bdebf5', '#c9d2ff', '#e3c9ff']],
+  ['natural', 'ナチュラル靴', ['#e8d9b5', '#c9b28a', '#8a9a5b', '#5e7f4a', '#3f6b47', '#b07a52', '#6f4e37']],
+  ['vivid', 'ビビッド靴', ['#e8002d', '#ff6d00', '#ffd600', '#00c853', '#00e5ff', '#0057ff', '#ff00a8']],
+  ['vintage', 'ヴィンテージ靴', ['#d2a24c', '#b5533c', '#3e7c7b', '#e9ddb8', '#c48b8b', '#8b8f5a', '#7a5c46']],
+  ['retro', 'レトロ靴', ['#e8761e', '#e0b000', '#7c8f2a', '#7a4a21', '#f2e2b8', '#1f7a7a', '#b5302a']],
+  ['chic', 'シック靴', ['#1b1b1f', '#1f2a44', '#6e1f2e', '#3c3f46', '#b8964a', '#1f4b3a', '#e8e3d6']],
+  ['modern', 'モダン靴', ['#f4f4f4', '#d4d4d4', '#a8a8a8', '#7d8791', '#5a5a5a', '#2e2e2e', '#0e0e0e']],
+  ['cool', 'クール靴', ['#0097a7', '#26c6da', '#80deea', '#4fc3f7', '#1976d2', '#b0bec5', '#e0e8ec']],
+  ['fresh', 'フレッシュ靴', ['#ffd54f', '#ff9f1c', '#c6e03a', '#7ed957', '#fff8b0', '#7de3c9', '#ff6f61']],
+];
+const pen = { shoe: -1, index: -1 }; // 選んだ色（まだなら -1）
+const hexToRgb = (h) => [1, 3, 5].map((i) => Number((parseInt(h.substr(i, 2), 16) / 255).toFixed(4)));
+function penColorHex() { return pen.shoe >= 0 ? SHOE_THEMES[pen.shoe][2][pen.index] : null; }
+function setPenColor(shoe, index) {
+  pen.shoe = shoe; pen.index = index;
+  try { localStorage.setItem('siro_roof_web_pen', JSON.stringify(pen)); } catch { /* */ }
+  hud.refresh();
+}
+try { Object.assign(pen, JSON.parse(localStorage.getItem('siro_roof_web_pen') || '{}')); } catch { /* */ }
+
+function openPenPalette() {
+  if (renderer.xr.isPresenting) {
+    // VR では色えらびを出せないので、7色の靴の赤で塗る
+    setPenColor(0, 0);
+    xr.notice('ペンの色: 赤（色は PC かスマホで選べます）');
+    return;
+  }
+  if (useCenterAim) hud.showPalette(SHOE_THEMES, (si, ci) => setPenColor(si, ci));
+  else fan.show('pen-shoes');
+}
+
+// 建材を塗る（ゲームの _paint_building: 同じ色なら何もしない）
+function paintPiece(p) {
+  const hex = penColorHex();
+  if (!hex) return false;
+  const rgb = hexToRgb(hex);
+  const cur = p.row.paint_color;
+  if (cur && Math.abs(cur[0] - rgb[0]) < 1e-3 && Math.abs(cur[1] - rgb[1]) < 1e-3 && Math.abs(cur[2] - rgb[2]) < 1e-3) return true;
+  const row = { ...p.row, paint_color: [...rgb, 1] };
+  removePiece(p);
+  addRow(row);
+  playPlace('glass');
+  save();
+  return true;
+}
+
 function evaluateAim(origin, dir) {
   const kind = kindSelected();
-  aimState.pickMode = kind === 'pickup';
+  // 回収とマジックペンは、ねらった建材を選ぶ
+  aimState.pickMode = kind === 'pickup' || kind === 'pen';
   const hit = castAim(origin, dir);
   aimState.hit = hit;
   aimState.target = null;
@@ -496,6 +548,14 @@ function updateGhost() {
 }
 
 function commitPress() {
+  if (kindSelected() === 'pen') {
+    // 色をまだ選んでいなければ、色えらびを出す（ゲームと同じ）
+    if (!penColorHex()) { openPenPalette(); return; }
+    const p = aimState.pickPiece;
+    if (!p) { hud.toast('建材をねらってください'); return; }
+    paintPiece(p);
+    return;
+  }
   if (aimState.pickMode) {
     const p = aimState.pickPiece;
     if (p) {
@@ -557,7 +617,7 @@ window.addEventListener('keydown', (e) => {
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
   keys.add(e.code);
   if (e.code === 'Space') { if (!e.repeat) input.jump = true; e.preventDefault(); }
-  const n = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'].indexOf(e.code);
+  const n = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6'].indexOf(e.code);
   if (n >= 0) selectItem(n);
   if (e.code === 'KeyQ') selectItem(selected - 1);
   if (e.code === 'KeyE') selectItem(selected + 1);
@@ -709,10 +769,52 @@ function setupTouch() {
 // --- HUD・宝箱・看板・VR ---
 // 右手の扇メニュー（PC）。右手の画面の位置に出す
 const fan = new FanMenu({
-  items: ITEMS,
-  stock,
-  getSelected: () => selected,
-  select: (i) => selectItem(i),
+  page: (name) => {
+    if (name === 'pen-shoes') {
+      // ペン: 靴のテーマをえらぶ
+      return {
+        cursor: Math.max(0, pen.shoe),
+        entries: [
+          ...SHOE_THEMES.map(([, label, cols], i) => ({
+            label, swatch: `linear-gradient(135deg, ${cols.join(', ')})`,
+            held: () => pen.shoe === i, run: () => `pen-colors:${i}`,
+          })),
+          { label: 'もどる', sym: '↩', run: () => 'main' },
+        ],
+      };
+    }
+    if (name.startsWith('pen-colors:')) {
+      const si = Number(name.split(':')[1]);
+      const [, , cols] = SHOE_THEMES[si];
+      return {
+        cursor: pen.shoe === si ? pen.index : 0,
+        entries: [
+          ...cols.map((c, ci) => ({
+            label: `${ci + 1}`, swatch: c, held: () => pen.shoe === si && pen.index === ci,
+            run: () => { setPenColor(si, ci); selectItem(ITEMS.findIndex((it) => it.kind === 'pen')); return null; },
+          })),
+          { label: 'もどる', sym: '↩', run: () => 'pen-shoes' },
+        ],
+      };
+    }
+    // いちばん上: 建材・回収・マジックペン・とじる
+    return {
+      cursor: selected,
+      entries: [
+        ...ITEMS.map((it, i) => ({
+          label: it.label, art: it.art,
+          sym: it.kind === 'pickup' ? '⤺' : (it.kind === 'pen' ? '✎' : ''),
+          swatch: it.kind === 'pen' ? (penColorHex() || null) : null,
+          count: it.kind in stock ? () => stock[it.kind] | 0 : null,
+          empty: it.kind in stock ? () => (stock[it.kind] | 0) <= 0 : null,
+          held: () => selected === i,
+          // ペンは選ぶと色えらびへ（ゲームの「入れ物」と同じく扇の 2 階層目）
+          run: () => { selectItem(i); return it.kind === 'pen' ? 'pen-shoes' : null; },
+        })),
+        { label: 'とじる', sym: '×', run: () => null },
+      ],
+    };
+  },
   anchor: () => {
     const hand = playerView.rightHand;
     const v = new THREE.Vector3();
@@ -723,6 +825,8 @@ const fan = new FanMenu({
 });
 
 const hud = new Hud({
+  penColor: () => penColorHex(),
+  penPalette: () => openPenPalette(),
   items: ITEMS,
   stock,
   getSelected: () => selected,
@@ -982,4 +1086,4 @@ hud.refresh();
 xr.refreshMenu();
 renderer.setAnimationLoop(frame);
 document.body.classList.add('ready');
-window.__siro = { world, stock, player, rows, export3mf, toJson, chests, climber, playerView };
+window.__siro = { world, stock, player, rows, export3mf, toJson, chests, climber, playerView, camera, cam };

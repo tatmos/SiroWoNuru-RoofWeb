@@ -17,9 +17,14 @@ export class Hud {
       b.dataset.kind = it.kind;
       b.innerHTML = it.art
         ? `<span class="art" style="background-image:url('${it.art}')"></span><span class="lab">${it.label}</span><span class="n"></span><span class="key">${i + 1}</span>`
-        : `<span class="art pick">⤺</span><span class="lab">${it.label}</span><span class="n"></span><span class="key">${i + 1}</span>`;
-      b.addEventListener('click', (e) => { this.o.select(i); e.stopPropagation(); });
-      b.addEventListener('touchstart', (e) => { this.o.select(i); e.preventDefault(); e.stopPropagation(); }, { passive: false });
+        : `<span class="art pick">${it.kind === 'pen' ? '✎' : '⤺'}</span><span class="lab">${it.label}</span><span class="n"></span><span class="key">${i + 1}</span>`;
+      // ペンを持っているときにもう一度押すと、色えらび
+      const pick = () => {
+        if (it.kind === 'pen' && this.o.getSelected() === i && this.o.penPalette) this.o.penPalette();
+        else this.o.select(i);
+      };
+      b.addEventListener('click', (e) => { pick(); e.stopPropagation(); });
+      b.addEventListener('touchstart', (e) => { pick(); e.preventDefault(); e.stopPropagation(); }, { passive: false });
       this.menu.appendChild(b);
       return b;
     });
@@ -57,6 +62,15 @@ export class Hud {
   }
 
   refresh() {
+    // ペンの板は選んだ色で塗る
+    const penHex = this.o.penColor ? this.o.penColor() : null;
+    this.slots.forEach((b, i) => {
+      if (this.o.items[i].kind !== 'pen') return;
+      const art = b.querySelector('.art');
+      art.style.background = penHex || '';
+      art.style.color = penHex ? '#fff' : '';
+      art.style.textShadow = penHex ? '0 0 3px #000' : '';
+    });
     const sel = this.o.getSelected();
     this.slots.forEach((b, i) => {
       const it = this.o.items[i];
@@ -104,4 +118,32 @@ export class Hud {
   }
 
   hideCards() { this.cardsEl.classList.remove('on'); }
+
+  // マジックペンの色えらび（スマホ用。PC は扇から）。themes: [[id, label, [hex×7]]]
+  showPalette(themes, pick) {
+    const box = this.cardsEl;
+    box.innerHTML = '<div class="title">マジックペンの色をえらぶ</div>';
+    const list = document.createElement('div');
+    list.className = 'palette';
+    themes.forEach(([, label, cols], si) => {
+      const row = document.createElement('div');
+      row.className = 'pal-row';
+      row.innerHTML = `<span class="pal-name">${label}</span>`;
+      cols.forEach((c, ci) => {
+        const sw = document.createElement('button');
+        sw.className = 'pal-sw';
+        sw.style.background = c;
+        sw.onclick = () => { box.classList.remove('on'); pick(si, ci); };
+        row.appendChild(sw);
+      });
+      list.appendChild(row);
+    });
+    const close = document.createElement('button');
+    close.className = 'pal-close';
+    close.textContent = 'とじる';
+    close.onclick = () => box.classList.remove('on');
+    box.appendChild(list);
+    box.appendChild(close);
+    box.classList.add('on');
+  }
 }

@@ -113,3 +113,11 @@ body.in-vr #top, body.in-vr #menu, body.in-vr #promo { opacity: .35; }
 body:not(.touch) #menu .slot:not(.sel) { display: none; }
 body:not(.touch) #menu { top: auto; bottom: 14px; transform: none; }
 body:not(.touch) #menu::after { content: '右クリックで持ちかえ'; display: block; font-size: 11px; color: #fff; text-shadow: 0 0 3px #000; text-align: center; margin-top: 2px; }
+
+/* マジックペンの色 */
+.fan-slot .art.swatch { border: 2px solid rgba(0,0,0,.15); }
+#cards .palette { background: #fbf4e4; border-radius: 14px; padding: 10px 12px; max-height: 70vh; overflow: auto; }
+.pal-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+.pal-name { width: 110px; font-size: 13px; font-weight: 700; }
+.pal-sw { width: 34px; height: 34px; border-radius: 8px; border: 2px solid rgba(0,0,0,.2); padding: 0; }
+.pal-close { margin-top: 10px; padding: 6px 18px; border-radius: 8px; border: 1px solid rgba(90,70,50,.3); background: #fff; }
