@@ -668,6 +668,9 @@ function commitPress() {
   hud.refresh();
 }
 
+// カードの絵を先に読みこむ（宝箱を開けた瞬間に絵が白いままにならないように）
+for (const it of ITEMS) if (it.art) { const im = new Image(); im.src = it.art; }
+
 const labelOf = (kind) => (ITEMS.find((i) => i.kind === kind) || { label: kind }).label;
 
 function beginPress(source) {

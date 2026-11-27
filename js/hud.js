@@ -104,13 +104,16 @@ export class Hud {
   // 宝箱のカード（3 枚から 1 枚）
   showCards(cards, pick) {
     const box = this.cardsEl;
-    box.innerHTML = '<div class="title">宝箱！ カードを 1 枚えらぶ</div>';
+    // ゲームのカード選び（成長カードを選ぼう）と同じ書き方: 種類「配置」・名前・絵・【基本】効果・説明
+    box.innerHTML = '<div class="banner"><div class="big">成長カードを選ぼう</div><div class="small">1枚選ぶと効果が発動します</div></div>';
     const row = document.createElement('div');
     row.className = 'row';
     for (const c of cards) {
       const b = document.createElement('button');
       b.className = 'card';
-      b.innerHTML = `<span class="art" style="background-image:url('${c.art}')"></span><span class="name">${c.label}補給</span><span class="desc">${c.label}の建材を10個追加する</span>`;
+      b.innerHTML = `<span class="cat">配置</span><span class="name">${c.label}補給</span>`
+        + `<span class="art" style="background-image:url('${c.art}')"></span>`
+        + `<span class="eff">【基本】 ${c.label}+10</span><span class="desc">${c.label}の建材を10個追加する</span>`;
       b.onclick = () => { box.classList.remove('on'); pick(c); };
       row.appendChild(b);
     }
