@@ -42,7 +42,7 @@ export class PlayerView {
     this.mixer = new THREE.AnimationMixer(model);
     for (const clip of gltf.animations) {
       const name = clip.name.toLowerCase();
-      const key = ['walk', 'idle', 'run', 'jump'].find((k) => name.endsWith(k) || name.includes('_' + k));
+      const key = ['walk', 'idle', 'run', 'jump', 'hanging'].find((k) => name.endsWith(k) || name.includes('_' + k));
       if (key && !this.actions[key]) this.actions[key] = this.mixer.clipAction(clip);
     }
     this.play('idle');
@@ -58,12 +58,21 @@ export class PlayerView {
   }
 
   // vel: 水平の速度。体の向きに対して後ろへ進むときは歩きを逆回しにする
-  update(dt, pos, facing, vel, onGround) {
+  update(dt, pos, facing, vel, onGround, climb = null) {
     this.root.position.copy(pos);
     this.root.rotation.y = facing;
     const speed = Math.hypot(vel.x, vel.z);
     const along = vel.x * Math.sin(facing) + vel.z * Math.cos(facing);
     const back = speed > 0.4 && along < -0.3 * speed;
+    if (climb && this.actions.hanging) {
+      // よじ登り: ぶら下がりのアニメ。動いている速さで回し、下りは逆回し
+      this.play('hanging', 0.15);
+      const m = Math.max(Math.abs(climb.upAxis), Math.abs(climb.sideAxis));
+      const a = this.actions.hanging;
+      a.timeScale = m < 0.12 ? 0.15 : (climb.upAxis < -0.12 ? -1 : 1) * Math.min(1.35, Math.max(0.7, m));
+      if (this.mixer) this.mixer.update(dt);
+      return;
+    }
     if (!onGround) this.play('jump', 0.15);
     else if (speed > RUN_SPEED_THRESHOLD && !back) this.play('run');
     else if (speed > 0.4) this.play('walk');

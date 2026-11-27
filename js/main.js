@@ -15,6 +15,7 @@ import { XrControls } from './xr.js';
 import { Chests } from './chests.js';
 import { LinkBoards } from './links.js';
 import { playPlace, playPickup, playChest } from './sound.js';
+import { Climber } from './climb.js';
 
 const PLACE_MAX_RANGE = 10.0;
 const HEX_WALL_HOLD_MSEC = 220;
@@ -196,6 +197,11 @@ const input = {
   sprint: false,
   jump: false,
 };
+const climber = new Climber({
+  pieces: () => world.pieces,
+  groundAt: (x, z, feetY) => groundAt(x, z, feetY),
+  insideWalk: (x, z, r) => insideWalk(x, z, r),
+});
 
 function stepPlayer(dt, viewYaw, inXrMove = false) {
   // 入力の向き（カメラ基準）
@@ -203,6 +209,19 @@ function stepPlayer(dt, viewYaw, inXrMove = false) {
   const r = new THREE.Vector3(Math.cos(viewYaw), 0, -Math.sin(viewYaw));
   const want = f.multiplyScalar(input.move.y).add(r.multiplyScalar(input.move.x));
   if (want.lengthSq() > 1) want.normalize();
+  // よじ登り（ゲームと同じ: 壁へ向かって歩き続けると掴む）
+  const sDouble = climber.noteDown(input.move.y < -0.5);
+  if (climber.active) {
+    if (input.jump) { climber.leapUp(player); input.jump = false; }
+    else if (sDouble) climber.drop(player);
+    else {
+      climber.tick(player, dt, input.move.y, input.move.x);
+      if (climber.active) { player.facing = climber.facing(); return; }
+    }
+  } else if (climber.tryBegin(player, want)) {
+    player.facing = climber.facing();
+    return;
+  }
   want.multiplyScalar(SPEED * (input.sprint ? SPRINT_SPEED_MUL : 1));
   // ゲームの _steer_xz_velocity と同じ: 一定の加速で近づける（逆向きは速く、手を離すと MOVE_DECEL で止まる）
   const hv = new THREE.Vector3(player.vel.x, 0, player.vel.z);
@@ -711,7 +730,7 @@ function frame() {
     input.sprint = keys.has('ShiftLeft') || keys.has('ShiftRight') || touch.stickVec.length() > 0.95;
   }
   stepPlayer(dt, viewYaw, inXr);
-  playerView.update(dt, player.pos, player.facing, player.vel, player.onGround);
+  playerView.update(dt, player.pos, player.facing, player.vel, player.onGround, climber.active ? climber : null);
   playerView.root.visible = !inXr;
 
   if (inXr) {
@@ -748,4 +767,4 @@ hud.refresh();
 xr.refreshMenu();
 renderer.setAnimationLoop(frame);
 document.body.classList.add('ready');
-window.__siro = { world, stock, player, rows, export3mf, toJson, chests };
+window.__siro = { world, stock, player, rows, export3mf, toJson, chests, climber };
