@@ -577,7 +577,7 @@ function paintPiece(p) {
 }
 
 function evaluateAim(origin, dir) {
-  const kind = kindSelected();
+  const kind = aimState.forcePick ? 'pickup' : kindSelected();
   // 回収とマジックペンは、ねらった建材を選ぶ
   aimState.pickMode = kind === 'pickup' || kind === 'pen';
   aimState.pen = kind === 'pen';
@@ -643,7 +643,7 @@ function updateGhost() {
 }
 
 function commitPress() {
-  if (kindSelected() === 'pen') {
+  if (!aimState.forcePick && kindSelected() === 'pen') {
     // 色をまだ選んでいなければ、色えらびを出す（ゲームと同じ）
     if (!penColorHex()) { openPenPalette(); return; }
     const p = aimState.pickPiece;
@@ -1024,7 +1024,11 @@ const xr = new XrControls(renderer, scene, rig, camera, {
   select: selectItem,
   input,
   beginPress: () => beginPress('xr'),
-  endPress: () => endPress('xr'),
+  endPress: (cancel) => endPress('xr', !!cancel),
+  // 左の引き金: 押しているあいだは回収のねらい、離すと回収（cancel なら回収しない）
+  beginPickup: () => { aimState.forcePick = true; beginPress('xrpick'); },
+  endPickup: (cancel) => { endPress('xrpick', !!cancel); aimState.forcePick = false; },
+  undo: () => undoLast(),
   handleRay: (o, d) => chests.handleRay(o, d) || links.handleRay(o, d),
   onEnd: () => { if (xr.pendingUrl) { window.open(xr.pendingUrl, '_blank', 'noopener'); xr.pendingUrl = null; } },
 });
@@ -1178,7 +1182,8 @@ function frameBody() {
     if (pointerInside || useCenterAim) computeAimRay();
   }
   if (fan.open) { aimState.target = null; aimState.pickPiece = null; } // 扇を出しているあいだは置かない
-  else if (inXr || pointerInside || useCenterAim) evaluateAim(aimOrigin, aimDir);
+  // VR は配置モード（B）か、左の引き金で回収をねらっているあいだだけ
+  else if ((inXr && (xr.placeMode || aimState.forcePick)) || pointerInside || useCenterAim) evaluateAim(aimOrigin, aimDir);
   else { aimState.target = null; aimState.pickPiece = null; }
   updateGhost();
   hud.setAimHint(aimState, inXr);

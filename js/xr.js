@@ -6,6 +6,8 @@ const SNAP_TURN = Math.PI / 6;
 // ゲームの GamepadAim.LOOK_SENS（1.35 rad/秒）を VR の主観では 2 倍にしている
 const SMOOTH_TURN_SPEED = 1.35 * 2.0;
 const STICK_DEADZONE = 0.22;
+// ゲームの GamepadAim.SHOULDER_TAP_MS（グリップの短押し）
+const SHOULDER_TAP_MS = 220;
 // 手首の扇（ゲームの BRACELET_* と同じ数）
 const FAN_LIFT = 0.1;
 const FAN_RADIUS = 0.24;
@@ -38,9 +40,13 @@ export class XrControls {
     this.hands = {};
     this._prev = {};
     this._turnLatch = false;
+    this.placeMode = false;
+    this._cycleLatch = 0;
+    this.grip_left = -1;
+    this.grip_right = -1;
     this._menuDirty = true;
     for (let i = 0; i < 2; i++) this._setupController(i);
-    renderer.xr.addEventListener('sessionend', () => { document.body.classList.remove('in-vr'); this.o.onEnd(); });
+    renderer.xr.addEventListener('sessionend', () => { document.body.classList.remove('in-vr'); this.setPlaceMode(false); this.o.onEnd(); });
     this._buildMenu();
     this._noticeMesh = null;
   }
@@ -77,6 +83,7 @@ export class XrControls {
         if (saved) Object.defineProperty(proto, 'createProjectionLayer', saved);
       }
       this.firstFramePending = true;
+      this.notice('B で配置モード（右の引き金で置く）');
       document.body.classList.add('in-vr');
       step('VR を開始しました');
       setTimeout(() => { if (this.renderer.xr.isPresenting) this.status(''); }, 4000);
@@ -234,7 +241,7 @@ export class XrControls {
   // 毎フレーム（VR の描画の前）。手首の上に扇を置く
   updateFan(dt) {
     const r = this.hands.right;
-    if (!r || !r.source) { this.fanRoot.visible = false; return; }
+    if (!r || !r.source || !this.placeMode) { this.fanRoot.visible = false; return; }
     this.fanRoot.visible = true;
     const n = this.fanSlots.length;
     const sel = this.o.getSelected();
@@ -373,42 +380,97 @@ export class XrControls {
     return a.length >= 4 ? [a[2], a[3]] : [a[0] || 0, a[1] || 0];
   }
 
+  // ゲームの VR と同じボタン（xr_rig.gd → パッドの割り当て → player_avatar_gamepad.gd）
+  //   左スティック 歩く ／ 左スティック押しこみ（押しているあいだ） 走る
+  //   右スティック 向きを変える。配置モード中は左右で建材の切りかえ
+  //   A ジャンプ ／ B 配置モードのオン・オフ（オンで手首の扇とガイドが出る）
+  //   右の引き金 置く（押す: 床、長押し: 壁） ／ 左の引き金 回収 ／ 左の引き金を押したまま右の引き金 取り消し
+  //   グリップを短く押す 建材の切りかえ（左 前・右 次）
   update(dt) {
-    // 左スティック: 頭の向きを前として歩く（ゲームと同じ。あそびも同じ 0.22）
     const [lx, ly] = this._axes('left');
     const mv = new THREE.Vector2(lx, -ly);
     if (mv.length() < STICK_DEADZONE) mv.set(0, 0);
     if (mv.length() > 1) mv.normalize();
     this.move.copy(mv);
-    this.sprint = this._pressed('left', 1);
-    // 右スティック: ゲームの既定と同じなめらかな回転（LOOK_SENS × 2）。右スティックを押しこむとスナップ（30°）に切りかえ
+    this.sprint = this._pressed('left', 3);
+    // 右スティックを押しこむと、回転をなめらか／スナップ（30°）に切りかえ（Web 版だけ）
     const [rx] = this._axes('right');
     if (this._edge('right', 3) === 1) {
       this.snapTurn = !this.snapTurn;
       this.notice(this.snapTurn ? '回転: スナップ（30°）' : '回転: なめらか');
     }
-    if (this.snapTurn) {
-      if (Math.abs(rx) >= 0.7) {
-        if (!this._turnLatch) { this.turn -= Math.sign(rx) * SNAP_TURN; this._turnLatch = true; }
-      } else if (Math.abs(rx) < 0.35) this._turnLatch = false;
-    } else if (Math.abs(rx) >= STICK_DEADZONE) {
-      this.turn -= rx * SMOOTH_TURN_SPEED * dt;
+    if (this.placeMode) {
+      // 配置モード中の右スティック左右は建材の切りかえ（ゲームの _poll_place_stick_cycle: 0.62 で入り 0.32 で戻る）
+      if (rx > 0.62) {
+        if (this._cycleLatch !== 1) { this._cycleLatch = 1; this._cycle(1); }
+      } else if (rx < -0.62) {
+        if (this._cycleLatch !== -1) { this._cycleLatch = -1; this._cycle(-1); }
+      } else if (Math.abs(rx) < 0.32) this._cycleLatch = 0;
+    } else {
+      this._cycleLatch = 0;
+      if (this.snapTurn) {
+        if (Math.abs(rx) >= 0.7) {
+          if (!this._turnLatch) { this.turn -= Math.sign(rx) * SNAP_TURN; this._turnLatch = true; }
+        } else if (Math.abs(rx) < 0.35) this._turnLatch = false;
+      } else if (Math.abs(rx) >= STICK_DEADZONE) {
+        this.turn -= rx * SMOOTH_TURN_SPEED * dt;
+      }
     }
-    if (this._edge('left', 0) === 1) this.o.input.jump = true;
-    this.jumpHeld = this._pressed('left', 0);
+    // A: ジャンプ
+    if (this._edge('right', 4) === 1) this.o.input.jump = true;
+    this.jumpHeld = this._pressed('right', 4);
+    // B: 配置モードのオン・オフ
+    if (this._edge('right', 5) === 1) this.setPlaceMode(!this.placeMode);
+    // グリップの短押し（220ms 以内）で切りかえ
+    for (const [hand, dir] of [['left', -1], ['right', 1]]) {
+      const g = this._edge(hand, 1);
+      const key = `grip_${hand}`;
+      if (g === 1) this[key] = performance.now();
+      else if (g === -1 && this[key] >= 0) {
+        if (performance.now() - this[key] <= SHOULDER_TAP_MS) { this.setPlaceMode(true); this._cycle(dir); }
+        this[key] = -1;
+      }
+    }
+    // 左の引き金: 回収（押して離すと、ねらった建材を回収）
+    const lt = this._edge('left', 0);
+    const ltHeld = this._pressed('left', 0);
     const trig = this._edge('right', 0);
-    if (trig === 1) {
+    if (trig === 1 && ltHeld) {
+      // 左を押したまま右: 取り消し（回収はしない）
+      if (this._picking) { this._picking = false; this.o.endPickup(true); }
+      if (this._placing) { this._placing = false; this.o.endPress(true); }
+      this.o.undo();
+      this._undoUntilRelease = true;
+    } else if (trig === 1) {
       const o = new THREE.Vector3(), d = new THREE.Vector3();
       this.aimRay(o, d);
-      if (!this.o.handleRay(o, d)) { this._placing = true; this.o.beginPress(); }
+      if (!this.o.handleRay(o, d) && this.placeMode) { this._placing = true; this.o.beginPress(); }
     } else if (trig === -1 && this._placing) {
       this._placing = false;
-      this.o.endPress();
+      this.o.endPress(false);
     }
-    if (this._edge('right', 4) === 1) this.o.select(this.o.getSelected() + 1);
-    if (this._edge('right', 5) === 1) this.o.select(this.o.getSelected() === 4 ? 0 : 4);
-    // 左の X / Y でも切りかえ
-    if (this._edge('left', 4) === 1) this.o.select(this.o.getSelected() - 1);
+    if (lt === 1 && !this._placing) { this._picking = true; this._undoUntilRelease = false; this.o.beginPickup(); }
+    else if (lt === -1 && this._picking) { this._picking = false; this.o.endPickup(this._undoUntilRelease); }
+    if (lt === -1) this._undoUntilRelease = false;
+  }
+
+  _cycle(dir) {
+    this.o.select(this.o.getSelected() + dir);
+    this._pulse('right', 0.3, 30);
+  }
+
+  setPlaceMode(on) {
+    if (on === this.placeMode) return;
+    this.placeMode = on;
+    if (!on && this._placing) { this._placing = false; this.o.endPress(true); }
+    this._pulse('right', on ? 0.4 : 0.25, 60);
+  }
+
+  _pulse(hand, amp, ms) {
+    const e = this.hands[hand];
+    const gp = e && e.source && e.source.gamepad;
+    const h = gp && gp.hapticActuators && gp.hapticActuators[0];
+    try { if (h && h.pulse) h.pulse(amp, ms); } catch { /* 振動できない機種 */ }
   }
 }
 
