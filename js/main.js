@@ -15,7 +15,8 @@ import { FanMenu } from './fan.js';
 import { XrControls } from './xr.js';
 import { Chests } from './chests.js';
 import { LinkBoards } from './links.js';
-import { playPlace, playPickup, playChest, playLand, Steps, playUndo } from './sound.js';
+import { playPlace, playPickup, playChest, playLand, Steps, playUndo, updateWindSound } from './sound.js';
+import { Wind, Leaves, SunFlare } from './env_fx.js';
 import { Climber } from './climb.js';
 
 const PLACE_MAX_RANGE = 10.0;
@@ -56,7 +57,7 @@ rig.add(camera);
 scene.add(new THREE.HemisphereLight(0xeaf5ff, 0xb9b2a0, 0.9));
 const sun = new THREE.DirectionalLight(0xfff1dc, 3.0);
 // 太陽の向き（空のシェーダーの太陽と同じ）
-const SUN_OFFSET = new THREE.Vector3(30, 50, 20);
+const SUN_OFFSET = new THREE.Vector3(36, 30, 24); // 高さ約 35°（ゲームの昼すぎくらい）
 sun.position.copy(SUN_OFFSET);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
@@ -102,6 +103,9 @@ scene.background = null;
   scene.environmentIntensity = 0.5;
   pmrem.dispose();
 }
+
+const wind = new Wind();
+const leaves = new Leaves(scene);
 
 const texLoader = new THREE.TextureLoader();
 buildRoofScene(scene, texLoader);
@@ -994,6 +998,10 @@ const chests = new Chests(scene, {
   showChoice: (cards, pick) => hud.showCards(cards, pick),
 });
 
+// 太陽のレンズフレア。太陽までのあいだに建材があれば出さない（ゲームは光線で建物・山を見る）
+const SUN_DIR = SUN_OFFSET.clone().normalize();
+const sunFlare = new SunFlare((origin, dir) => world.pieces.some((p) => p.rayHitPoint(origin, dir, 120, 0.0)));
+
 const links = new LinkBoards(scene, {
   onOpen: (url, label) => {
     if (renderer.xr.isPresenting) {
@@ -1163,6 +1171,10 @@ function frame() {
 
   chests.update(dt, player.pos);
   fan.update(dt);
+  wind.update(dt);
+  leaves.update(dt, player.pos, wind);
+  updateWindSound(dt, wind.effective(), wind.gust);
+  sunFlare.update(dt, inXr ? renderer.xr.getCamera() : camera, SUN_DIR, !inXr);
   animateCurtains(dt);
   links.update(aimOrigin, aimDir);
   sun.position.copy(player.pos).add(SUN_OFFSET);

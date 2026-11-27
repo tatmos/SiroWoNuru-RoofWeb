@@ -38,7 +38,7 @@ python tools/serve.py 8765
 
 - `assets/models/player.glb`（しろ）: Tripo AI で作成（有料プランの商用ライセンス）
 - `assets/cards/*.png`（カードの絵）: ChatGPT / DALL·E（OpenAI）で作成した AI 生成画像
-- `assets/sfx/*.wav`（置く・回収・宝箱・着地・足音）: 開発者による自作（ゲーム本体と同じ音）
+- `assets/sfx/*.wav`, `weather_wind_loop.ogg`（置く・回収・宝箱・着地・足音・取り消し・風）: 開発者による自作（ゲーム本体と同じ音。風は合成）
 - `assets/anims/ual_jump.json`（空中・着地のアニメ）: [Quaternius「Universal Animation Library」](https://opengameart.org/content/universal-animation-library)（CC0）をゲームでしろの骨へ焼き直したもの
 - `assets/textures/marble_white_diff_1k.jpg`: [Poly Haven](https://polyhaven.com) の marble_01（CC0）を色調整
 - [three.js](https://threejs.org)（MIT, `vendor/three/LICENSE`）

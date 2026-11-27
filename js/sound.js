@@ -5,6 +5,7 @@ const FILES = {
   set: 'assets/sfx/set.wav',
   chest: 'assets/sfx/sfx_chest.wav',
   undo: 'assets/sfx/sfx_undo.wav',
+  wind: 'assets/sfx/weather_wind_loop.ogg',
   // 屋上の床・レンガ・大理石はゲームでは「concrete」の着地音。高く落ちたら重い岩の音
   land_concrete: 'assets/sfx/sfx_landing_concrete.wav',
   land_heavy_rock1: 'assets/sfx/sfx_landing_heavy_rock1.wav',
@@ -127,4 +128,23 @@ export class Steps {
 // 取り消しの音（ゲームの play_undo: -4 dB と置く音の -6 dB）
 export function playUndo() {
   play('undo', -4.0 + PLACE_SFX_DB);
+}
+
+// 風の音（ゲームの weather_fx.gd の _update_wind_sound: 大きさは強さで、高さは強さと突風で。基本の音量 -9 dB）
+let windSrc = null, windGain = null, windLevel = 0;
+export function updateWindSound(dt, eff, gust) {
+  if (!ctx || !buffers.wind) return;
+  if (!windSrc) {
+    windSrc = ctx.createBufferSource();
+    windSrc.buffer = buffers.wind;
+    windSrc.loop = true;
+    windGain = ctx.createGain();
+    windGain.gain.value = 0;
+    windSrc.connect(windGain).connect(master);
+    windSrc.start();
+  }
+  const want = smooth(0.12, 0.95, eff) * Math.pow(10, -9.0 / 20);
+  windLevel += (want - windLevel) * Math.min(1, dt / 0.6);
+  windGain.gain.value = windLevel;
+  windSrc.playbackRate.value = 0.82 + 0.32 * Math.min(Math.max(eff, 0), 1.3) + 0.06 * gust;
 }
