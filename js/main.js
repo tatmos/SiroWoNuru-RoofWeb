@@ -708,7 +708,37 @@ window.addEventListener('resize', () => {
 const STRIP_MAX_ANGLE = 1.0;
 const STRIP_REACH_X = 0.95; // 布の前後（面からの距離）
 const STRIP_REACH_Z = 0.5; // 布の左右
-const curtainSide = new WeakMap();
+const curtainSide = new Map();
+
+// 同じ場所・向きで縦に連なった暖簾を 1 本にまとめる（いちばん上を支点に一緒に揺れる）
+function curtainColumns() {
+  const groups = new Map();
+  for (const p of world.pieces) {
+    if (!p.isCurtain || !p.mesh.userData.strips) continue;
+    const yawKey = (((p.yaw % Math.PI) + Math.PI) % Math.PI);
+    const key = `${p.position.x.toFixed(2)}|${p.position.z.toFixed(2)}|${(yawKey > Math.PI - 0.02 ? 0 : yawKey).toFixed(2)}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(p);
+  }
+  const cols = [];
+  for (const list of groups.values()) {
+    list.sort((x, y) => y.position.y - x.position.y); // 上から
+    let cur = null;
+    for (const p of list) {
+      const top = p.position.y + p.shapeSize.y / 2;
+      if (cur && Math.abs(cur.bottom - top) < 0.05) {
+        cur.pieces.push(p);
+        cur.bottom = p.position.y - p.shapeSize.y / 2;
+      } else {
+        cur = { key: '', ref: p, top, bottom: p.position.y - p.shapeSize.y / 2, pieces: [p] };
+        cols.push(cur);
+      }
+    }
+  }
+  for (const c of cols) c.key = `${c.ref.position.x.toFixed(2)}|${c.top.toFixed(2)}|${c.ref.position.z.toFixed(2)}`;
+  return cols;
+}
+
 function animateCurtains(dt) {
   const k = 1.0 - Math.exp(-dt * 9.0);
   const t = performance.now() * 0.0011;
@@ -716,20 +746,21 @@ function animateCurtains(dt) {
   const camPos = new THREE.Vector3();
   camera.getWorldPosition(camPos);
   pushers.push(camPos);
-  for (const p of world.pieces) {
-    if (!p.isCurtain) continue;
-    const strips = p.mesh.userData.strips;
-    if (!strips) continue;
-    const near = p.position.distanceToSquared(player.pos) < 36 || p.position.distanceToSquared(camPos) < 36;
-    const half = p.shapeSize.y / 2;
-    const locals = near ? pushers.map((q) => p.toLocal(q)) : [];
-    const sides = curtainSide.get(p) || [0, 0];
-    strips.forEach((s, i) => {
+  for (const col of curtainColumns()) {
+    const ref = col.ref;
+    const refStrips = ref.mesh.userData.strips;
+    const near = pushers.some((q) => Math.hypot(q.x - ref.position.x, q.z - ref.position.z) < 4);
+    // 柱の中の高さは、いちばん上の暖簾の中心から見た位置
+    const topLocal = col.top - ref.position.y;
+    const bottomLocal = col.bottom - ref.position.y;
+    const locals = near ? pushers.map((q) => ref.toLocal(q)) : [];
+    const sides = curtainSide.get(col.key) || [0, 0];
+    const angles = refStrips.map((s, i) => {
       let target = 0;
       locals.forEach((l, j) => {
-        if (l.y < -half - 0.3 || l.y > half + 0.3) return;
+        if (l.y < bottomLocal - 0.3 || l.y > topLocal + 0.3) return;
         const dx = l.z; // 布の面からの距離
-        if (Math.abs(dx) > STRIP_REACH_X || Math.abs(l.x) > p.spanX / 2 + 0.3) return;
+        if (Math.abs(dx) > STRIP_REACH_X || Math.abs(l.x) > ref.spanX / 2 + 0.3) return;
         if (Math.abs(dx) > 0.14 || !sides[j]) sides[j] = dx < 0 ? -1 : 1;
         const wz = Math.min(1, Math.max(0, 1 - (Math.abs(l.x - s.x) - 0.2) / STRIP_REACH_Z));
         const wx = Math.min(1, Math.max(0, 1 - Math.abs(dx) / STRIP_REACH_X));
@@ -737,11 +768,22 @@ function animateCurtains(dt) {
         if (Math.abs(a) > Math.abs(target)) target = a;
       });
       // 風もないのに少しゆれる
-      target += Math.sin(t + i * 1.3 + p.position.x) * 0.015;
+      target += Math.sin(t + i * 1.3 + ref.position.x) * 0.015;
       s.angle += (target - s.angle) * k;
-      s.pivot.rotation.x = s.angle;
+      return s.angle;
     });
-    curtainSide.set(p, sides);
+    curtainSide.set(col.key, sides);
+    // 柱の暖簾を、いちばん上を支点に同じ角度で回す（下の暖簾は上の布の続きになる）
+    for (const p of col.pieces) {
+      const same = Math.cos(p.yaw - ref.yaw) > 0;
+      const half = p.shapeSize.y / 2;
+      const dTop = col.top - (p.position.y + half); // この暖簾の上端から柱の上端まで
+      p.mesh.userData.strips.forEach((s, j) => {
+        const th = same ? angles[j] : -angles[2 - j];
+        s.pivot.position.set(s.x, half + dTop - dTop * Math.cos(th), -dTop * Math.sin(th));
+        s.pivot.rotation.x = th;
+      });
+    }
   }
 }
 
