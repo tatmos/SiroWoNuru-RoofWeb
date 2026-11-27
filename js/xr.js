@@ -6,6 +6,8 @@ const SNAP_TURN = Math.PI / 6;
 // ゲームの GamepadAim.LOOK_SENS（1.35 rad/秒）を VR の主観では 2 倍にしている
 const SMOOTH_TURN_SPEED = 1.35 * 2.0;
 const STICK_DEADZONE = 0.22;
+// コントローラか（スティックがある）。SteamVR はコントローラを「手」としても報告する
+const isCtrl = (src) => !!(src && src.gamepad && src.gamepad.axes && src.gamepad.axes.length >= 2);
 
 export class XrControls {
   constructor(renderer, scene, rig, camera, o) {
@@ -42,15 +44,23 @@ export class XrControls {
     const step = (msg) => this.status(`${msg}（${((performance.now() - t0) / 1000).toFixed(1)} 秒）`);
     try {
       // ゴーグルの GPU に合わせる（PC では GPU の切りかえで時間がかかることがある）
-      step('1/3 GPU を VR 用に準備しています…');
-      const gl = this.renderer.getContext();
-      if (gl.makeXRCompatible) await gl.makeXRCompatible();
+      // WebGL は最初から xrCompatible で作ってあるので、ここで makeXRCompatible はしない
+      step('1/3 VR の準備をしています…');
       step('2/3 ゴーグルに VR を頼んでいます…（ゴーグルの中を見てください）');
       const session = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'] });
       step('3/3 VR の画面を作っています…');
       this.renderer.xr.setReferenceSpaceType('local-floor');
       this.renderer.xr.setFoveation(1.0);
-      await this.renderer.xr.setSession(session);
+      // 新しい XRProjectionLayer を使わせず、従来の XRWebGLLayer にする（SteamVR で最初の画面が届かず「応答なし」になるため）
+      // three.js は 'createProjectionLayer' in XRWebGLBinding.prototype で見るので、そのあいだだけ消す
+      const proto = window.XRWebGLBinding && window.XRWebGLBinding.prototype;
+      const saved = proto && Object.getOwnPropertyDescriptor(proto, 'createProjectionLayer');
+      if (saved) delete proto.createProjectionLayer;
+      try {
+        await this.renderer.xr.setSession(session);
+      } finally {
+        if (saved) Object.defineProperty(proto, 'createProjectionLayer', saved);
+      }
       this.firstFramePending = true;
       document.body.classList.add('in-vr');
       step('VR を開始しました');
@@ -77,27 +87,35 @@ export class XrControls {
   }
 
   _setupController(i) {
+    // 位置・向きは targetRay（getController）を使う。手として報告されるとグリップの姿勢が更新されないため
     const ctrl = this.renderer.xr.getController(i);
-    const grip = this.renderer.xr.getControllerGrip(i);
-    this.rig.add(ctrl, grip);
+    this.rig.add(ctrl);
     const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
     const line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 }));
     line.scale.z = 6;
     line.visible = false;
     ctrl.add(line);
     const body = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.12), new THREE.MeshStandardMaterial({ color: 0xdddddd }));
-    body.position.z = 0.02;
-    grip.add(body);
-    const entry = { ctrl, grip, line, source: null, hand: '' };
+    body.position.z = 0.06;
+    body.visible = false;
+    ctrl.add(body);
+    const entry = { ctrl, body, line, source: null, hand: '' };
     ctrl.addEventListener('connected', (e) => {
+      const h = e.data.handedness;
+      // 同じ手にコントローラがもうあるなら、スティックのない入力（手の追跡）ではおきかえない
+      const cur = this.hands[h];
+      if (cur && cur !== entry && isCtrl(cur.source) && !isCtrl(e.data)) return;
       entry.source = e.data;
-      entry.hand = e.data.handedness;
-      this.hands[entry.hand] = entry;
-      line.visible = entry.hand === 'right';
-      if (entry.hand === 'right') grip.add(this.menu);
+      entry.hand = h;
+      this.hands[h] = entry;
+      line.visible = h === 'right';
+      body.visible = true;
+      if (h === 'right') ctrl.add(this.menu);
     });
     ctrl.addEventListener('disconnected', () => {
       if (this.hands[entry.hand] === entry) delete this.hands[entry.hand];
+      body.visible = false;
+      line.visible = false;
       entry.source = null;
     });
   }

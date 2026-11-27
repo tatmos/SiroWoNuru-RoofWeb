@@ -36,7 +36,10 @@ export const ITEMS = [
 
 // --- three.js ---
 const canvas = document.getElementById('view');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+// WebGL は最初から VR 対応（xrCompatible）で作る。VR 開始時に makeXRCompatible で切りかえると、
+// PC（SteamVR・Virtual Desktop）ではコンテキストが失われたり止まったりする
+const gl2 = canvas.getContext('webgl2', { xrCompatible: true, antialias: true, alpha: false, depth: true, stencil: false, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer(gl2 ? { canvas, context: gl2, antialias: true } : { canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
@@ -1130,7 +1133,17 @@ renderer.domElement.addEventListener('webglcontextlost', (e) => {
   xr.status('画面（WebGL）が失われました。ページを読み込みなおしてください', true);
 });
 
+// 1 回の例外で XR の描画ループが止まると、SteamVR が「応答なし」にするので包む
+let frameErrors = 0;
 function frame() {
+  try { frameBody(); } catch (e) {
+    frameErrors += 1;
+    if (frameErrors <= 5) console.error(e);
+    try { renderer.render(scene, camera); } catch { /* 描けないときはあきらめる */ }
+  }
+}
+
+function frameBody() {
   const dt = Math.min(clock.getDelta(), 1 / 20);
   const inXr = renderer.xr.isPresenting;
   let viewYaw = cam.yaw;
