@@ -41,6 +41,9 @@ export class XrControls {
     this._prev = {};
     this._turnLatch = false;
     this.placeMode = false;
+    this.fanOpen = false;
+    this.fanCursor = 0;
+    this._aConsumed = false;
     this._cycleLatch = 0;
     this.grip_left = -1;
     this.grip_right = -1;
@@ -244,7 +247,8 @@ export class XrControls {
     if (!r || !r.source || !this.placeMode) { this.fanRoot.visible = false; return; }
     this.fanRoot.visible = true;
     const n = this.fanSlots.length;
-    const sel = this.o.getSelected();
+    const held = this.o.getSelected();
+    const sel = this.fanOpen ? this.fanCursor : held;
     // いまの位置（小数の番号）をなめらかに追う（輪なので近いほうへ）
     let diff = sel - this.fanPos;
     diff -= Math.round(diff / n) * n;
@@ -267,7 +271,8 @@ export class XrControls {
       let d = slot.i - this.fanPos;
       d -= Math.round(d / n) * n;
       const ad = Math.abs(d);
-      if (ad > FAN_SIDE_COUNT + 0.5) { slot.spr.visible = false; continue; }
+      // 閉じているあいだは、持っている品の板だけを手首に出す（ゲームの held_only）
+      if (ad > FAN_SIDE_COUNT + 0.5 || (!this.fanOpen && slot.i !== held)) { slot.spr.visible = false; continue; }
       const deg = d * FAN_STEP_DEG + Math.sign(d) * Math.min(ad, 1) * FAN_GAP_DEG;
       const a = deg * Math.PI / 180;
       slot.spr.position.copy(anchor).addScaledVector(camRight, Math.sin(a) * FAN_RADIUS).addScaledVector(camUp, (Math.cos(a) - 1) * FAN_RADIUS);
@@ -282,10 +287,10 @@ export class XrControls {
       // 真ん中に近いほど後に描く（手前に見える）
       slot.spr.renderOrder = 60 + Math.round((FAN_SIDE_COUNT + 1 - ad) * 3);
       slot.spr.visible = true;
-      this._drawSlot(slot, slot.i === sel);
+      this._drawSlot(slot, slot.i === held);
     }
     // 数は持っている板の右下の角（建材だけ）
-    const it = this.o.items[sel];
+    const it = this.o.items[held];
     const showCount = !!it && it.kind !== 'pickup' && it.kind !== 'pen';
     this.countSpr.visible = showCount;
     if (showCount) {
@@ -392,6 +397,8 @@ export class XrControls {
     if (mv.length() < STICK_DEADZONE) mv.set(0, 0);
     if (mv.length() > 1) mv.normalize();
     this.move.copy(mv);
+    // 扇を開いて歩きだしたら閉じる（ゲームの _tick_pad_fan と同じ）
+    if (this.fanOpen && mv.length() > 0.5) this.closeFan();
     this.sprint = this._pressed('left', 3);
     // 右スティックを押しこむと、回転をなめらか／スナップ（30°）に切りかえ（Web 版だけ）
     const [rx] = this._axes('right');
@@ -416,11 +423,16 @@ export class XrControls {
         this.turn -= rx * SMOOTH_TURN_SPEED * dt;
       }
     }
-    // A: ジャンプ
-    if (this._edge('right', 4) === 1) this.o.input.jump = true;
-    this.jumpHeld = this._pressed('right', 4);
-    // B: 配置モードのオン・オフ
-    if (this._edge('right', 5) === 1) this.setPlaceMode(!this.placeMode);
+    // A: 扇を開いているあいだは決定だけ（ジャンプしない）。閉じていればジャンプ
+    const a = this._edge('right', 4);
+    if (a === 1 && this.fanOpen) { this.confirmFan(); this._aConsumed = true; }
+    else if (a === 1) { this.o.input.jump = true; this._aConsumed = false; }
+    this.jumpHeld = this._pressed('right', 4) && !this._aConsumed;
+    // B: 扇を開いていれば閉じる（持ちかえない）。閉じていれば配置モードのオン・オフ
+    if (this._edge('right', 5) === 1) {
+      if (this.fanOpen) this.closeFan();
+      else this.setPlaceMode(!this.placeMode);
+    }
     // グリップの短押し（220ms 以内）で切りかえ
     for (const [hand, dir] of [['left', -1], ['right', 1]]) {
       const g = this._edge(hand, 1);
@@ -441,6 +453,9 @@ export class XrControls {
       if (this._placing) { this._placing = false; this.o.endPress(true); }
       this.o.undo();
       this._undoUntilRelease = true;
+    } else if (trig === 1 && this.fanOpen) {
+      // 扇を開いているあいだの右の引き金は決定（置かない）
+      this.confirmFan();
     } else if (trig === 1) {
       const o = new THREE.Vector3(), d = new THREE.Vector3();
       this.aimRay(o, d);
@@ -454,14 +469,34 @@ export class XrControls {
     if (lt === -1) this._undoUntilRelease = false;
   }
 
+  // スティック・グリップ: 扇を開いてカーソルを動かす（持ちかえは A か右の引き金で決めたとき。ゲームの fan_step）
   _cycle(dir) {
-    this.o.select(this.o.getSelected() + dir);
+    const n = this.o.items.length;
+    if (!this.fanOpen) {
+      this.fanOpen = true;
+      this.fanCursor = this.o.getSelected();
+      if (this._placing) { this._placing = false; this.o.endPress(true); }
+    }
+    this.fanCursor = (this.fanCursor + dir + n) % n;
     this._pulse('right', 0.3, 30);
+  }
+
+  // ゲームの fan_confirm: カーソルの品を持って扇を閉じる
+  confirmFan() {
+    if (!this.fanOpen) return;
+    this.o.select(this.fanCursor);
+    this.fanOpen = false;
+    this._pulse('right', 0.45, 50);
+  }
+
+  closeFan() {
+    this.fanOpen = false;
   }
 
   setPlaceMode(on) {
     if (on === this.placeMode) return;
     this.placeMode = on;
+    if (!on) this.fanOpen = false;
     if (!on && this._placing) { this._placing = false; this.o.endPress(true); }
     this._pulse('right', on ? 0.4 : 0.25, 60);
   }

@@ -1183,7 +1183,7 @@ function frameBody() {
   }
   if (fan.open) { aimState.target = null; aimState.pickPiece = null; } // 扇を出しているあいだは置かない
   // VR は配置モード（B）か、左の引き金で回収をねらっているあいだだけ
-  else if ((inXr && (xr.placeMode || aimState.forcePick)) || pointerInside || useCenterAim) evaluateAim(aimOrigin, aimDir);
+  else if ((inXr && ((xr.placeMode && !xr.fanOpen) || aimState.forcePick)) || pointerInside || useCenterAim) evaluateAim(aimOrigin, aimDir);
   else { aimState.target = null; aimState.pickPiece = null; }
   updateGhost();
   hud.setAimHint(aimState, inXr);
