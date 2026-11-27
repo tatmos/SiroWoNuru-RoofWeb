@@ -3,7 +3,7 @@
 「[しろを塗る Castle Paint](https://store.steampowered.com/app/5254900/)」の拠点の屋上で、建物を組んで遊べるブラウザ版の体験版です。
 
 - レンガ・ガラス・暖簾・大理石の建材を、ゲームと同じ三角の格子に置けます（押す: 床、長押し: 壁。板の端から壁の角へつなぐと坂、板の下に暖簾）。
-- ゲームと同じように、建材の縦の壁をよじ登れます（壁へ向かって歩き続けると掴まり、上端でのり越える）。
+- ゲームと同じように、建材の縦の壁をよじ登れます（壁へ向かって歩き続けると掴まり、上端でのり越える）。天井の板の裏にはぶら下がって進めます（雲梯）。
 - 1 分ごとに宝箱が降ってきます。開けると建材の補給カード（+10）を 3 枚から 1 枚えらべます。
 - 屋上の建材を **JSON** で書き出し・読み込みできます。形式はゲーム本体と同じ（`siro_roof_build` v1）で、ゲームの「設定 → 拠点」の「JSON を書き出す／読み込む」とそのままやりとりできます。
 - **3D 印刷データ（3MF）** をダウンロードできます（1/100。段ごとに分けて刷り、ダボで重ねる形。暖簾は棒と布を別に刷る）。Bambu Studio でパーツごとのフィラメントが分かれます。
@@ -38,6 +38,7 @@ python tools/serve.py 8765
 - `assets/models/player.glb`（しろ）: Tripo AI で作成（有料プランの商用ライセンス）
 - `assets/cards/*.png`（カードの絵）: ChatGPT / DALL·E（OpenAI）で作成した AI 生成画像
 - `assets/sfx/*.wav`（置く・回収・宝箱・着地・足音）: 開発者による自作（ゲーム本体と同じ音）
+- `assets/anims/ual_jump.json`（空中・着地のアニメ）: [Quaternius「Universal Animation Library」](https://opengameart.org/content/universal-animation-library)（CC0）をゲームでしろの骨へ焼き直したもの
 - `assets/textures/marble_white_diff_1k.jpg`: [Poly Haven](https://polyhaven.com) の marble_01（CC0）を色調整
 - [three.js](https://threejs.org)（MIT, `vendor/three/LICENSE`）
 - [fflate](https://github.com/101arrowz/fflate)（MIT, three.js に同梱）

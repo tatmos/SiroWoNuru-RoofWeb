@@ -254,6 +254,7 @@ const climber = new Climber({
   pieces: () => world.pieces,
   groundAt: (x, z, feetY) => groundAt(x, z, feetY),
   insideWalk: (x, z, r) => insideWalk(x, z, r),
+  onMantleLand: (fallH) => playLand(fallH),
 });
 
 function stepPlayer(dt, viewYaw, inXrMove = false) {
@@ -374,7 +375,8 @@ function castAim(origin, dir) {
     best = { point: new THREE.Vector3(px, y, pz), piece: null };
   }
   for (const p of world.pieces) {
-    if (p.isCurtain && !aimState.pickMode) continue;
+    // 暖簾は当たり判定が無い。回収のときと、暖簾を選んでいるとき（暖簾の下に吊るす）だけねらえる（ゲームと同じ）
+    if (p.isCurtain && !aimState.pickMode && kindSelected() !== 'curtain') continue;
     const h = p.rayHitPoint(origin, dir, bestD, 0.0);
     if (h) {
       const d = h.distanceTo(origin);
@@ -415,6 +417,12 @@ function evaluateAim(origin, dir) {
   const vertical = aimState.pressing && performance.now() - aimState.pressAt >= HEX_WALL_HOLD_MSEC;
   const snap = resolveBuildingPlacement(world, kind, hit.point, dir, vertical);
   if (!snap || !snap.pos) return;
+  if (kind === 'curtain' && !snap.support) {
+    // 吊るす板が無い: ガイドは出さず、置ける所を案内する
+    aimState.reason = '暖簾は、床・天井の板の下か、暖簾の下に吊るせます';
+    aimState.target = { ...snap, ok: false, kind, hidden: true };
+    return;
+  }
   let ok = !!snap.ok;
   const pos = snap.pos;
   if (xz(pos).distanceTo(xz(player.pos)) > PLACE_MAX_RANGE) { ok = false; aimState.reason = '遠すぎます'; }
@@ -461,7 +469,7 @@ function updateGhost() {
     return;
   }
   const t = aimState.target;
-  if (!t) return;
+  if (!t || t.hidden) return;
   const p = new Piece(targetRow(t));
   ghost = buildPieceMesh(p, t.ok ? 'ok' : 'bad');
   ghost.renderOrder = 2;

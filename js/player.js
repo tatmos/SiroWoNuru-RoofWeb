@@ -48,6 +48,53 @@ export class PlayerView {
     }
     this.play('idle');
     if (this.floorAt) this.gait = new ProceduralGait(model, this.floorAt);
+    await this._loadUal(model);
+  }
+
+  // ゲームの空中・着地のアニメ（Quaternius の Universal Animation Library。ゲームが player の骨へ焼き直したもの）
+  async _loadUal(model) {
+    try {
+      const data = await (await fetch('assets/anims/ual_jump.json')).json();
+      const names = new Set();
+      model.traverse((o) => { if (o.isBone || o.type === 'Bone' || o.name) names.add(o.name); });
+      const make = (name, key) => {
+        const a = data[name];
+        if (!a) return;
+        const tracks = [];
+        for (const t of a.tracks) {
+          if (!names.has(t.bone)) continue;
+          if (t.type === 'quaternion') tracks.push(new THREE.QuaternionKeyframeTrack(`${t.bone}.quaternion`, t.times, t.values));
+          else if (t.type === 'position') tracks.push(new THREE.VectorKeyframeTrack(`${t.bone}.position`, t.times, t.values));
+        }
+        this.actions[key] = this.mixer.clipAction(new THREE.AnimationClip(name, a.length, tracks));
+      };
+      make('UalJumpLoop', 'jumpLoop');
+      make('UalJumpLand', 'jumpLand');
+      if (this.actions.jumpLand) {
+        this.actions.jumpLand.setLoop(THREE.LoopOnce, 1);
+        this.actions.jumpLand.clampWhenFinished = true;
+      }
+    } catch (e) { console.warn('ual anims', e); }
+  }
+
+  // 着地: しばらく浮いていたら、止まって降りたときだけ着地のクリップ（ゲームと同じ: 0.35 秒以上、水平 1.2 m/s 未満、1.25 倍速）
+  _landing(dt, vel) {
+    const speed = Math.hypot(vel.x, vel.z);
+    if ((this.airSec || 0) > 0) {
+      const landed = this.airSec > 0.35;
+      this.airSec = 0;
+      if (landed && this.actions.jumpLand && speed < 1.2) {
+        this.landing = true;
+        this.play('jumpLand', 0.1);
+        this.actions.jumpLand.timeScale = 1.25;
+        return true;
+      }
+      return false;
+    }
+    if (!this.landing) return false;
+    const a = this.actions.jumpLand;
+    if (speed > 1.2 || !a.isRunning() || a.time >= a.getClip().duration - 0.01) { this.landing = false; return false; }
+    return true;
   }
 
   play(name, fade = 0.2) {
@@ -73,7 +120,13 @@ export class PlayerView {
       const a = this.actions.hanging;
       a.timeScale = m < 0.12 ? 0.15 : (climb.upAxis < -0.12 ? -1 : 1) * Math.min(1.35, Math.max(0.7, m));
     } else if (!onGround) {
-      this.play('jump', 0.15);
+      // 空中はジャンプループ（ゲームと同じ。無ければ glb のジャンプ）
+      this.airSec = (this.airSec || 0) + dt;
+      this.landing = false;
+      if (this.actions.jumpLoop) this.play('jumpLoop', 0.15);
+      else this.play('jump', 0.15);
+    } else if (this._landing(dt, vel)) {
+      // 着地のクリップの途中（歩き出したら歩きへ）
     } else if (gait && gait.ok) {
       this.play('idle', 0.15);
     } else {
@@ -83,7 +136,7 @@ export class PlayerView {
     }
     if (this.mixer) this.mixer.update(dt);
     if (gait) {
-      gait.gaitOn = !climb && onGround;
+      gait.gaitOn = !climb && onGround && !this.landing;
       gait.measure(dt, pos);
       gait.apply(dt, pos, facing);
     }
