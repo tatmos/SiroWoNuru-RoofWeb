@@ -1018,6 +1018,7 @@ const links = new LinkBoards(scene, {
 
 const xr = new XrControls(renderer, scene, rig, camera, {
   items: ITEMS,
+  penColor: () => penColorHex(),
   stock,
   getSelected: () => selected,
   select: selectItem,
@@ -1200,8 +1201,41 @@ function frameBody() {
   frameNo += 1;
   renderer.shadowMap.autoUpdate = !inXr;
   if (inXr && frameNo % 6 === 0) renderer.shadowMap.needsUpdate = true;
+  if (inXr) xr.updateFan(dt);
   renderer.render(scene, camera);
+  if (inXr) renderDeskView();
   if (inXr && xr.firstFramePending) { xr.firstFramePending = false; xr.status('VR の最初の画面を描きました'); }
+}
+
+// VR 中も PC の画面へ、左目と同じ向きの絵を映す（Quest など頭につけたブラウザでは映さない）
+const deskCam = new THREE.PerspectiveCamera(75, 1, 0.05, 2000);
+const deskMirror = !/OculusBrowser|Quest|Pico|Wolvic|Android|iPhone|iPad/i.test(navigator.userAgent);
+let deskFrame = 0;
+function renderDeskView() {
+  if (!deskMirror) return;
+  // 1 フレームおきに描く（VR の描画を重くしないため）
+  deskFrame += 1;
+  if (deskFrame % 2) return;
+  const xrCam = renderer.xr.getCamera();
+  const eye = xrCam.cameras && xrCam.cameras[0] ? xrCam.cameras[0] : xrCam;
+  eye.matrixWorld.decompose(deskCam.position, deskCam.quaternion, deskCam.scale);
+  deskCam.scale.set(1, 1, 1);
+  const pr = renderer.getPixelRatio();
+  const w = Math.max(1, Math.floor(window.innerWidth * pr)), h = Math.max(1, Math.floor(window.innerHeight * pr));
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  deskCam.aspect = window.innerWidth / window.innerHeight;
+  deskCam.updateProjectionMatrix();
+  deskCam.updateMatrixWorld(true);
+  const rt = renderer.getRenderTarget();
+  const shadowAuto = renderer.shadowMap.autoUpdate;
+  renderer.xr.enabled = false;
+  renderer.shadowMap.autoUpdate = false;
+  renderer.setRenderTarget(null);
+  renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
+  renderer.render(scene, deskCam);
+  renderer.shadowMap.autoUpdate = shadowAuto;
+  renderer.setRenderTarget(rt);
+  renderer.xr.enabled = true;
 }
 
 await loadInitial();
@@ -1209,4 +1243,4 @@ hud.refresh();
 xr.refreshMenu();
 renderer.setAnimationLoop(frame);
 document.body.classList.add('ready');
-window.__siro = { world, stock, player, rows, export3mf, toJson, chests, climber, playerView, camera, cam };
+window.__siro = { world, stock, player, rows, export3mf, toJson, chests, climber, playerView, camera, cam, xr, renderer };
