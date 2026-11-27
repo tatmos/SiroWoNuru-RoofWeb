@@ -42,25 +42,66 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.15;
 renderer.xr.enabled = true;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x9fd0f0);
-scene.fog = new THREE.Fog(0xb8dcf2, 80, 260);
+scene.fog = new THREE.Fog(0xd6eaf6, 90, 300);
 const rig = new THREE.Group();
 scene.add(rig);
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.05, 400);
 rig.add(camera);
 
-scene.add(new THREE.HemisphereLight(0xdff1ff, 0x6b7a4a, 1.1));
-const sun = new THREE.DirectionalLight(0xfff3dd, 2.4);
-sun.position.set(30, 60, 20);
+scene.add(new THREE.HemisphereLight(0xeaf5ff, 0xb9b2a0, 0.9));
+const sun = new THREE.DirectionalLight(0xfff1dc, 3.0);
+// 太陽の向き（空のシェーダーの太陽と同じ）
+const SUN_OFFSET = new THREE.Vector3(30, 50, 20);
+sun.position.copy(SUN_OFFSET);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -40, right: 40, top: 40, bottom: -40, near: 1, far: 160 });
 sun.shadow.bias = -0.0005;
 scene.add(sun, sun.target);
+
+// 空: シェーダーで描く（天頂の濃い青 → 地平の淡い青、太陽の円と光のにじみ）。プレイヤーについて動く。
+// 同じ空を映りこみ用の環境マップにする（ガラス・大理石・レンガのつやが空を映す）
+function makeSky(radius) {
+  const mat = new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: false,
+    uniforms: {
+      sunDir: { value: SUN_OFFSET.clone().normalize() },
+      zenith: { value: new THREE.Color(0x2f6fd6) },
+      horizon: { value: new THREE.Color(0xb9dcf5) },
+      ground: { value: new THREE.Color(0xd9e6ee) },
+    },
+    vertexShader: `varying vec3 vDir;
+      void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform vec3 sunDir; uniform vec3 zenith; uniform vec3 horizon; uniform vec3 ground; varying vec3 vDir;
+      void main() {
+        vec3 d = normalize(vDir);
+        float h = d.y;
+        vec3 col = h > 0.0 ? mix(horizon, zenith, pow(h, 0.55)) : mix(horizon, ground, pow(min(-h * 4.0, 1.0), 0.6));
+        float s = max(dot(d, normalize(sunDir)), 0.0);
+        col += vec3(1.0, 0.95, 0.85) * (pow(s, 900.0) * 1.6 + pow(s, 40.0) * 0.35 + pow(s, 6.0) * 0.12);
+        gl_FragColor = vec4(min(col, vec3(1.0)), 1.0);
+      }`,
+  });
+  const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 32, 16), mat);
+  m.frustumCulled = false;
+  return m;
+}
+const sky = makeSky(380);
+scene.add(sky);
+scene.background = null;
+{
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const envScene = new THREE.Scene();
+  envScene.add(makeSky(10));
+  scene.environment = pmrem.fromScene(envScene, 0, 0.1, 20).texture;
+  scene.environmentIntensity = 0.5;
+  pmrem.dispose();
+}
 
 const texLoader = new THREE.TextureLoader();
 buildRoofScene(scene, texLoader);
@@ -1121,7 +1162,8 @@ function frame() {
   fan.update(dt);
   animateCurtains(dt);
   links.update(aimOrigin, aimDir);
-  sun.position.set(player.pos.x + 30, player.pos.y + 50, player.pos.z + 20);
+  sun.position.copy(player.pos).add(SUN_OFFSET);
+  sky.position.copy(player.pos);
   sun.target.position.copy(player.pos);
 
   saveTimer += dt;

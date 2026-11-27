@@ -83,6 +83,26 @@ function getBrickNormal() {
   return brickNormal;
 }
 
+// ガラス（ゲームの make_glass_material: 色 (0.53, 0.88, 1.0)・不透明度 0.34・roughness 0.15・rim 0.75 / rim_tint 0.55）。
+// 空の映りこみ（環境マップ）とクリアコートのつやに、縁が明るく不透明になるフレネルを足す
+function makeGlassMaterial() {
+  const m = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color().setRGB(0.53, 0.88, 1.0, THREE.SRGBColorSpace),
+    transparent: true, opacity: 0.34, roughness: 0.08, metalness: 0.0,
+    clearcoat: 1.0, clearcoatRoughness: 0.04, ior: 1.5, specularIntensity: 1.0,
+    envMapIntensity: 1.1, depthWrite: false,
+  });
+  m.onBeforeCompile = (sh) => {
+    sh.fragmentShader = sh.fragmentShader.replace('#include <dithering_fragment>', `
+      float siroFres = pow(1.0 - clamp(abs(dot(normalize(vViewPosition), normal)), 0.0, 1.0), 3.0);
+      gl_FragColor.rgb += mix(vec3(1.0), diffuseColor.rgb, 0.55) * siroFres * 0.75;
+      gl_FragColor.a = clamp(gl_FragColor.a + siroFres * 0.5, 0.0, 1.0);
+      #include <dithering_fragment>`);
+  };
+  m.customProgramCacheKey = () => 'siro-glass';
+  return m;
+}
+
 export function setMarbleTexture(tex) {
   marbleTex = tex;
   marbleTex.wrapS = marbleTex.wrapT = THREE.RepeatWrapping;
@@ -97,7 +117,7 @@ export function materialFor(kind, paint = null, ghost = null) {
   if (kind === 'curtain') {
     m = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.24, 0.19, 0.14, THREE.SRGBColorSpace), roughness: 1, side: THREE.DoubleSide });
   } else if (kind === 'glass') {
-    m = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.53, 0.88, 1.0, THREE.SRGBColorSpace), transparent: true, opacity: 0.34, roughness: 0.15, depthWrite: false });
+    m = makeGlassMaterial();
   } else if (kind === 'marble') {
     m = new THREE.MeshStandardMaterial({ map: marbleTex, roughness: 0.42, color: 0xffffff });
   } else {

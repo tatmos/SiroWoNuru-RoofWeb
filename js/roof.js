@@ -69,7 +69,7 @@ export function buildRoofScene(scene, texLoader) {
   group.name = 'Roof';
   const plaster = new THREE.MeshStandardMaterial({ color: 0xf1ece1, roughness: 0.9 });
   const trim = new THREE.MeshStandardMaterial({ color: 0xcfc6b4, roughness: 0.85 });
-  const roofMat = new THREE.MeshStandardMaterial({ color: 0xb9b2a4, roughness: 0.95 });
+  const roofMat = new THREE.MeshStandardMaterial({ color: 0xd8d1c2, roughness: 0.95 });
   const parapetMat = new THREE.MeshStandardMaterial({ color: 0xe8e1d2, roughness: 0.9 });
   const box = (w, h, d, x, y, z, mat, name) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
@@ -129,7 +129,7 @@ export function buildRoofScene(scene, texLoader) {
   group.add(ground);
   // 石畳の広場
   const plaza = new THREE.Mesh(new THREE.CircleGeometry(46, 48),
-    new THREE.MeshStandardMaterial({ color: 0xc9bfa8, roughness: 1 }));
+    new THREE.MeshStandardMaterial({ color: 0xe2dac8, roughness: 1 }));
   plaza.rotation.x = -Math.PI / 2;
   plaza.position.y = BASE_Y - 0.28;
   plaza.receiveShadow = true;
@@ -161,9 +161,9 @@ function makeRoofTileTexture() {
   const c = document.createElement('canvas');
   c.width = c.height = 64;
   const g = c.getContext('2d');
-  g.fillStyle = '#bdb6a8';
+  g.fillStyle = '#d9d3c6';
   g.fillRect(0, 0, 64, 64);
-  g.fillStyle = '#c7c0b2';
+  g.fillStyle = '#ebe6db';
   g.fillRect(2, 2, 60, 60);
   g.fillStyle = 'rgba(0,0,0,0.05)';
   for (let i = 0; i < 40; i++) g.fillRect((i * 37) % 60, (i * 23) % 60, 3, 2);
