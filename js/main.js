@@ -4,7 +4,7 @@ import {
   Piece, resolveBuildingPlacement, gridAt, isBuildingKind, xz,
 } from './wall.js';
 import { buildRoofScene, domeShellY, insideWalk, spawnPoint, ROOF_Y } from './roof.js';
-import { buildPieceMesh, setMarbleTexture } from './pieces_view.js';
+import { buildPieceMesh, setMarbleTexture, disposeObject } from './pieces_view.js';
 import { toJson, fromJson } from './roof_build_io.js';
 import { export3mf } from './roof_print_export.js';
 import {
@@ -84,7 +84,7 @@ function removePiece(p) {
   const i = world.pieces.indexOf(p);
   if (i >= 0) world.pieces.splice(i, 1);
   piecesRoot.remove(p.mesh);
-  p.mesh.geometry.dispose();
+  disposeObject(p.mesh);
 }
 
 function clearPieces() {
@@ -376,7 +376,7 @@ function updateGhost() {
     : '';
   if (key && key === ghostKey && ghost) return;
   ghostKey = key;
-  if (ghost) { piecesRoot.remove(ghost); ghost.geometry.dispose(); ghost = null; }
+  if (ghost) { piecesRoot.remove(ghost); disposeObject(ghost); ghost = null; }
   if (pickHighlight) { pickHighlight.visible = false; }
   if (aimState.pickMode) {
     const p = aimState.pickPiece;
@@ -702,6 +702,47 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+// --- 暖簾のたわみ（ゲームの lobby_tart_room.gd の _animate_curtain と同じ数値） ---
+const STRIP_MAX_ANGLE = 1.0;
+const STRIP_REACH_X = 0.95; // 布の前後（面からの距離）
+const STRIP_REACH_Z = 0.5; // 布の左右
+const curtainSide = new WeakMap();
+function animateCurtains(dt) {
+  const k = 1.0 - Math.exp(-dt * 9.0);
+  const t = performance.now() * 0.0011;
+  const pushers = [player.pos.clone().add(new THREE.Vector3(0, 0.9, 0))];
+  const camPos = new THREE.Vector3();
+  camera.getWorldPosition(camPos);
+  pushers.push(camPos);
+  for (const p of world.pieces) {
+    if (!p.isCurtain) continue;
+    const strips = p.mesh.userData.strips;
+    if (!strips) continue;
+    const near = p.position.distanceToSquared(player.pos) < 36 || p.position.distanceToSquared(camPos) < 36;
+    const half = p.shapeSize.y / 2;
+    const locals = near ? pushers.map((q) => p.toLocal(q)) : [];
+    const sides = curtainSide.get(p) || [0, 0];
+    strips.forEach((s, i) => {
+      let target = 0;
+      locals.forEach((l, j) => {
+        if (l.y < -half - 0.3 || l.y > half + 0.3) return;
+        const dx = l.z; // 布の面からの距離
+        if (Math.abs(dx) > STRIP_REACH_X || Math.abs(l.x) > p.spanX / 2 + 0.3) return;
+        if (Math.abs(dx) > 0.14 || !sides[j]) sides[j] = dx < 0 ? -1 : 1;
+        const wz = Math.min(1, Math.max(0, 1 - (Math.abs(l.x - s.x) - 0.2) / STRIP_REACH_Z));
+        const wx = Math.min(1, Math.max(0, 1 - Math.abs(dx) / STRIP_REACH_X));
+        const a = sides[j] * STRIP_MAX_ANGLE * wz * Math.sqrt(wx);
+        if (Math.abs(a) > Math.abs(target)) target = a;
+      });
+      // 風もないのに少しゆれる
+      target += Math.sin(t + i * 1.3 + p.position.x) * 0.015;
+      s.angle += (target - s.angle) * k;
+      s.pivot.rotation.x = s.angle;
+    });
+    curtainSide.set(p, sides);
+  }
+}
+
 // --- まわす ---
 const clock = new THREE.Clock();
 let saveTimer = 0;
@@ -748,6 +789,7 @@ function frame() {
   hud.setAimHint(aimState, inXr);
 
   chests.update(dt, player.pos);
+  animateCurtains(dt);
   links.update(aimOrigin, aimDir);
   sun.position.set(player.pos.x + 30, player.pos.y + 50, player.pos.z + 20);
   sun.target.position.copy(player.pos);

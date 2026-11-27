@@ -119,22 +119,47 @@ export function materialFor(kind, paint = null, ghost = null) {
   return m;
 }
 
-function curtainGeometry(width, height) {
+// 暖簾の布 1 枚（i 番目）。原点は布の上端の真ん中（ここを支点に回す）
+function curtainPanelGeometry(width, height, i) {
   const pos = [];
   const panel = width / 3.0;
-  for (let i = 0; i < 3; i++) for (let j = 0; j < 8; j++) {
+  const cx = -width * 0.5 + panel * (i + 0.5);
+  for (let j = 0; j < 8; j++) {
     const pts = [];
     for (const t of [j / 8.0, (j + 1) / 8.0]) {
-      const x = -width * 0.5 + panel * (i + 0.035 + t * 0.93);
+      const x = -width * 0.5 + panel * (i + 0.035 + t * 0.93) - cx;
       const z = Math.sin(t * Math.PI * 4.0) * panel * 0.045;
-      pts.push([x, height * 0.5, z], [x, -height * 0.5, z]);
+      pts.push([x, 0, z], [x, -height, z]);
     }
     for (const k of [0, 2, 1, 1, 2, 3]) pos.push(...pts[k]);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.computeVertexNormals();
+  return { geo: g, cx };
+}
+
+// 暖簾: 3 枚の布をそれぞれ上端で吊る（userData.strips を main.js の animateCurtains が揺らす）
+function curtainGroup(width, height, mat) {
+  const g = new THREE.Group();
+  g.userData.strips = [];
+  for (let i = 0; i < 3; i++) {
+    const { geo, cx } = curtainPanelGeometry(width, height, i);
+    const pivot = new THREE.Group();
+    pivot.position.set(cx, height * 0.5, 0);
+    const m = new THREE.Mesh(geo, mat);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    pivot.add(m);
+    g.add(pivot);
+    g.userData.strips.push({ pivot, x: cx, angle: 0 });
+  }
   return g;
+}
+
+// メッシュやグループの形を捨てる
+export function disposeObject(obj) {
+  obj.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
 }
 
 function triangleGeometry(piece, uvScale) {
@@ -175,7 +200,11 @@ export function buildPieceMesh(piece, ghost = null) {
   if (piece.hexPiece && piece.isHorizontal) {
     geo = triangleGeometry(piece, marble ? [piece.spanX * 0.67, piece.spanX * 0.67] : [2.4, 1.6]);
   } else if (piece.isCurtain) {
-    geo = curtainGeometry(piece.spanX, piece.shapeSize.y);
+    const g = curtainGroup(piece.spanX, piece.shapeSize.y, materialFor(kind, piece.paintColor, ghost));
+    g.position.copy(piece.position);
+    g.rotation.y = piece.yaw;
+    g.userData.piece = piece;
+    return g;
   } else {
     const s = piece.shapeSize;
     const uvs = marble ? [s.x * 0.67, s.y * 0.67] : [2.4 * (s.x / WALL_W), 1.6 * piece.stackCount];

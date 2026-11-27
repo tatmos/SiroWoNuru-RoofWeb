@@ -4,9 +4,23 @@ import * as THREE from 'three';
 const CHEST_INTERVAL_SEC = 60.0;
 const FIRST_CHEST_SEC = 8.0;
 const CHEST_SPAWN_HEIGHT = 22.0;
-const OPEN_RANGE = 1.6;
 const MAX_CHESTS = 3;
 const STOCK_ADD = 10;
+// ここから下はゲームの scripts/game/treasure_chest.gd と同じ
+const FALL_SPEED = 1.35; // 風船につられて一定の速さで降りる
+const BOB_AMP = 0.12;
+const BOB_HZ = 1.6;
+const BUMP_RADIUS = 1.35; // この距離に BUMP_OPEN_SEC いると開く
+const BUMP_AIR_Y = 2.2; // 降りている途中は高さもこの範囲
+const BUMP_OPEN_SEC = 0.425;
+const DEFLATE_SEC = 0.7;
+const BALLOON_Y = 1.55;
+const STRING_Y = 0.76;
+const LID_TOP_Y = 0.18;
+const LAND_OFFSET = 0.35; // 原点は箱の底からこの高さ
+const BOX_W = 0.7, BOX_D = 0.55, BOX_HB = 0.34, BOX_HL = 0.19;
+
+const srgb = (r, g, b) => new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace);
 
 export class Chests {
   constructor(scene, o) {
@@ -15,36 +29,49 @@ export class Chests {
     this.list = [];
     this.timer = CHEST_INTERVAL_SEC - FIRST_CHEST_SEC;
     this.choice = null; // {group, cards: [{mesh, item}]}
-    this.lidMat = new THREE.MeshStandardMaterial({ color: 0xc8892e, roughness: 0.6, metalness: 0.2 });
-    this.bodyMat = new THREE.MeshStandardMaterial({ color: 0x8a5a2b, roughness: 0.8 });
-    this.bandMat = new THREE.MeshStandardMaterial({ color: 0xe8c35a, roughness: 0.35, metalness: 0.7, emissive: 0x403010 });
+    this.boxMat = new THREE.MeshStandardMaterial({ color: srgb(0.62, 0.36, 0.16), roughness: 0.7, emissive: srgb(0.85, 0.5, 0.18), emissiveIntensity: 0.08 });
+    this.bandMat = new THREE.MeshStandardMaterial({ color: srgb(0.2, 0.19, 0.2), roughness: 0.5, metalness: 0.4 });
+    this.accentMat = new THREE.MeshStandardMaterial({ color: srgb(1.0, 0.8, 0.3), roughness: 0.35, metalness: 0.6, emissive: srgb(1.0, 0.75, 0.3), emissiveIntensity: 0.25 });
     this.texLoader = new THREE.TextureLoader();
     this.tex = {};
   }
 
   _makeChest() {
     const g = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 0.6), this.bodyMat);
-    body.position.y = 0.25;
-    const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.9, 12, 1, false, 0, Math.PI), this.lidMat);
-    lid.rotation.z = Math.PI / 2;
-    lid.position.y = 0.5;
-    const band = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.82, 0.64), this.bandMat);
-    band.position.y = 0.4;
-    for (const m of [body, lid, band]) { m.castShadow = true; g.add(m); }
-    const glow = new THREE.PointLight(0xffd27a, 2.5, 5);
-    glow.position.y = 0.9;
+    const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; g.add(m); return m; };
+    const y0 = -LAND_OFFSET;
+    add(new THREE.BoxGeometry(BOX_W, BOX_HB, BOX_D), this.boxMat, 0, y0 + BOX_HB / 2, 0);
+    const lid = add(new THREE.BoxGeometry(BOX_W + 0.02, BOX_HL, BOX_D + 0.02), this.boxMat, 0, y0 + BOX_HB + BOX_HL / 2, 0);
+    add(new THREE.BoxGeometry(0.1, BOX_HB + BOX_HL + 0.01, BOX_D + 0.03), this.bandMat, -BOX_W * 0.3, y0 + (BOX_HB + BOX_HL) / 2, 0);
+    add(new THREE.BoxGeometry(0.1, BOX_HB + BOX_HL + 0.01, BOX_D + 0.03), this.bandMat, BOX_W * 0.3, y0 + (BOX_HB + BOX_HL) / 2, 0);
+    add(new THREE.BoxGeometry(0.12, 0.12, 0.04), this.accentMat, 0, y0 + BOX_HB, BOX_D / 2 + 0.02);
+    // 風船とひも（ゲームと同じ大きさ・色）
+    const balloonMat = new THREE.MeshStandardMaterial({ color: srgb(1.0, 0.35, 0.4), roughness: 0.35, emissive: srgb(0.9, 0.2, 0.25), emissiveIntensity: 0.15, transparent: true });
+    const balloon = new THREE.Mesh(new THREE.SphereGeometry(0.55, 24, 16), balloonMat);
+    balloon.position.y = BALLOON_Y;
+    balloon.scale.set(1.0, 1.12, 1.0);
+    balloon.castShadow = true;
+    const knot = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.1, 8), balloonMat);
+    knot.position.y = -0.53;
+    knot.rotation.x = Math.PI;
+    balloon.add(knot);
+    const stringMat = new THREE.MeshBasicMaterial({ color: srgb(0.9, 0.85, 0.7), transparent: true });
+    const string = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.15, 8), stringMat);
+    string.position.y = STRING_Y;
+    g.add(balloon, string);
+    const glow = new THREE.PointLight(srgb(1.0, 0.8, 0.35), 0, 5);
+    glow.position.y = 0.5;
     g.add(glow);
     this.scene.add(g);
-    return g;
+    return { g, lid, balloon, balloonMat, string, stringMat, glow };
   }
 
   spawnNear(center) {
     if (this.list.length >= MAX_CHESTS) return;
     const at = this.o.roofPointNear(center);
-    const g = this._makeChest();
-    g.position.set(at.x, at.y + CHEST_SPAWN_HEIGHT, at.z);
-    this.list.push({ g, ground: at.y, vy: 0, landed: false, spin: Math.random() * 6 });
+    const parts = this._makeChest();
+    parts.g.position.set(at.x, at.y + LAND_OFFSET + CHEST_SPAWN_HEIGHT, at.z);
+    this.list.push({ ...parts, target: at.y + LAND_OFFSET, falling: true, bob: Math.random() * 6, bump: 0, deflate: -1 });
   }
 
   update(dt, playerPos) {
@@ -54,27 +81,61 @@ export class Chests {
       this.spawnNear(playerPos);
     }
     for (const c of this.list) {
-      if (!c.landed) {
-        c.vy -= 9.0 * dt;
-        c.vy = Math.max(c.vy, -9.0);
-        c.g.position.y += c.vy * dt;
-        c.g.rotation.y += dt * 1.5;
-        if (c.g.position.y <= c.ground) { c.g.position.y = c.ground; c.landed = true; }
+      c.bob += dt;
+      if (c.falling) {
+        c.g.position.y = Math.max(c.g.position.y - FALL_SPEED * dt, c.target);
+        if (c.g.position.y <= c.target + 0.02) {
+          c.g.position.y = c.target;
+          c.falling = false;
+          c.deflate = 0;
+        } else {
+          // 降りているあいだも風船が少しゆれる
+          c.balloon.position.y = BALLOON_Y + Math.sin(c.bob * BOB_HZ * Math.PI * 2) * BOB_AMP * 0.5;
+        }
       } else {
-        c.spin += dt;
-        c.g.children[1].position.y = 0.5 + Math.max(0, Math.sin(c.spin * 3)) * 0.03;
+        if (c.deflate >= 0 && c.deflate < 1) this._deflateStep(c, dt);
+        c.glow.intensity = 1.2 + 0.35 * Math.sin(c.bob * 3.0) + c.bump / BUMP_OPEN_SEC * 2.0;
       }
     }
-    if (!this.choice) this.tryOpenNear(playerPos, OPEN_RANGE);
+    if (!this.choice) this._tickBump(dt, playerPos);
     if (this.choice && this.choice.vr) this._faceChoice();
+  }
+
+  // 着地したら風船がしぼむ（前半: 横にたわむ／後半: つぶれて箱に寄る）
+  _deflateStep(c, dt) {
+    c.deflate = Math.min(1, c.deflate + dt / DEFLATE_SEC);
+    const t = c.deflate * c.deflate * c.deflate; // ease in
+    const lerp = (a, b, u) => a + (b - a) * u;
+    if (t < 0.4) {
+      const u = t / 0.4;
+      c.balloon.scale.set(lerp(1, 1.25, u), lerp(1.12, 0.4, u), lerp(1, 1.25, u));
+      c.balloon.position.y = lerp(BALLOON_Y, 0.85, u);
+    } else {
+      const u = (t - 0.4) / 0.6;
+      c.balloon.scale.set(lerp(1.25, 0.05, u), lerp(0.4, 0.02, u), lerp(1.25, 0.05, u));
+      c.balloon.position.y = lerp(0.85, LID_TOP_Y + 0.05, u);
+    }
+    c.string.scale.set(lerp(1, 0.2, c.deflate), lerp(1, 0.05, c.deflate), lerp(1, 0.2, c.deflate));
+    c.string.position.y = lerp(STRING_Y, LID_TOP_Y, c.deflate);
+    c.stringMat.opacity = 1 - Math.min(1, c.deflate / 0.9);
+    if (c.deflate >= 1) { c.balloon.visible = false; c.string.visible = false; }
+  }
+
+  // 体当たり: BUMP_RADIUS 以内に BUMP_OPEN_SEC いると開く
+  _tickBump(dt, pos) {
+    for (const c of this.list) {
+      const d = Math.hypot(c.g.position.x - pos.x, c.g.position.z - pos.z);
+      const near = d <= BUMP_RADIUS && (!c.falling || Math.abs(c.g.position.y - pos.y) <= BUMP_AIR_Y);
+      c.bump = near ? c.bump + dt : Math.max(0, c.bump - dt);
+      if (c.bump >= BUMP_OPEN_SEC) { this._open(c); return; }
+    }
   }
 
   tryOpenNear(pos, range) {
     if (this.choice) return false;
     for (const c of this.list) {
-      if (!c.landed) continue;
       const d = Math.hypot(c.g.position.x - pos.x, c.g.position.z - pos.z);
-      if (d <= range && Math.abs(c.g.position.y - pos.y) < 1.6) { this._open(c); return true; }
+      if (d <= range && Math.abs(c.g.position.y - pos.y) < BUMP_AIR_Y) { this._open(c); return true; }
     }
     return false;
   }
@@ -157,7 +218,7 @@ export class Chests {
     }
     for (const c of this.list) {
       const hit = rc.intersectObject(c.g, true)[0];
-      if (hit && c.landed && hit.distance < 14) { this._open(c); return true; }
+      if (hit && hit.distance < 14) { this._open(c); return true; }
     }
     return false;
   }
