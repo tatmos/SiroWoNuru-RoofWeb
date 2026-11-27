@@ -235,6 +235,7 @@ export class XrControls {
       this.turn -= rx * SMOOTH_TURN_SPEED * dt;
     }
     if (this._edge('left', 0) === 1) this.o.input.jump = true;
+    this.jumpHeld = this._pressed('left', 0);
     const trig = this._edge('right', 0);
     if (trig === 1) {
       const o = new THREE.Vector3(), d = new THREE.Vector3();

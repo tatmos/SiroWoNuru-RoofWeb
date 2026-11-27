@@ -37,7 +37,7 @@ python tools/serve.py 8765
 
 - `assets/models/player.glb`（しろ）: Tripo AI で作成（有料プランの商用ライセンス）
 - `assets/cards/*.png`（カードの絵）: ChatGPT / DALL·E（OpenAI）で作成した AI 生成画像
-- `assets/sfx/*.wav`（置く・回収・宝箱の音）: 開発者による自作（ゲーム本体と同じ音）
+- `assets/sfx/*.wav`（置く・回収・宝箱・着地・足音）: 開発者による自作（ゲーム本体と同じ音）
 - `assets/textures/marble_white_diff_1k.jpg`: [Poly Haven](https://polyhaven.com) の marble_01（CC0）を色調整
 - [three.js](https://threejs.org)（MIT, `vendor/three/LICENSE`）
 - [fflate](https://github.com/101arrowz/fflate)（MIT, three.js に同梱）

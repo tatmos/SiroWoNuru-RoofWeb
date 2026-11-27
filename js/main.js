@@ -14,7 +14,7 @@ import { Hud } from './hud.js';
 import { XrControls } from './xr.js';
 import { Chests } from './chests.js';
 import { LinkBoards } from './links.js';
-import { playPlace, playPickup, playChest } from './sound.js';
+import { playPlace, playPickup, playChest, playLand, Steps } from './sound.js';
 import { Climber } from './climb.js';
 
 const PLACE_MAX_RANGE = 10.0;
@@ -198,7 +198,58 @@ const input = {
   move: new THREE.Vector2(), // x: 右, y: 前
   sprint: false,
   jump: false,
+  jumpHeld: false, // 滑空（二段ジャンプのあと押したまま）
 };
+// --- ジャンプ（ゲームの player_avatar_air_maneuver.gd と同じ） ---
+const AIR_JUMP_VELOCITY = 6.2;
+const GLIDE_GRAVITY_MUL = 0.2;
+const GLIDE_MAX_FALL_SPEED = 2.35;
+const HOP_CHAIN_LAND_WINDOW_MS = 240;
+const HOP_CHAIN_THIRD_MUL = 2.0;
+const NEAR_SUPPORT_GAP = 0.48;
+const steps = new Steps();
+const air = { jumpUsed: false, hopChain: 0, hopFromAir: false, hopLandUntil: 0, peakY: 0, wasOnGround: true };
+
+// 地上で続けて跳ぶと 3 回目は 2 倍（着地から 0.24 秒以内）
+function advanceHopChainMul(nearGround) {
+  const now = performance.now();
+  let timed = false;
+  if (air.hopChain >= 1 && air.hopChain < 3) {
+    if (now <= air.hopLandUntil) timed = true;
+    else if (air.hopFromAir && player.vel.y <= 0.4 && nearGround) timed = true;
+  }
+  air.hopChain = timed ? air.hopChain + 1 : 1;
+  air.hopFromAir = true;
+  air.hopLandUntil = 0;
+  if (air.hopChain >= 3) { air.hopChain = 3; return HOP_CHAIN_THIRD_MUL; }
+  return 1.0;
+}
+
+function tryJump() {
+  const g = groundAt(player.pos.x, player.pos.z, player.pos.y);
+  const nearSupport = player.onGround || (player.pos.y - g <= NEAR_SUPPORT_GAP && player.vel.y <= 0.4);
+  if (nearSupport) {
+    if (!player.onGround) player.pos.y = g; // 足場に足をつけてから跳ぶ
+    player.vel.y = JUMP_VELOCITY * advanceHopChainMul(true);
+    player.onGround = false;
+    return;
+  }
+  // 空中: 二段ジャンプ（1 回だけ）
+  if (air.jumpUsed) return;
+  air.jumpUsed = true;
+  air.hopChain = 0; air.hopFromAir = false; air.hopLandUntil = 0;
+  player.vel.y = Math.max(player.vel.y, 0) + AIR_JUMP_VELOCITY;
+}
+
+function onLanded(fallH) {
+  air.jumpUsed = false;
+  air.hopFromAir = false;
+  if (air.hopChain >= 1 && air.hopChain < 3) air.hopLandUntil = performance.now() + HOP_CHAIN_LAND_WINDOW_MS;
+  else { air.hopChain = 0; air.hopLandUntil = 0; }
+  playLand(fallH);
+  steps.reset();
+}
+
 const climber = new Climber({
   pieces: () => world.pieces,
   groundAt: (x, z, feetY) => groundAt(x, z, feetY),
@@ -218,10 +269,16 @@ function stepPlayer(dt, viewYaw, inXrMove = false) {
     else if (sDouble) climber.drop(player);
     else {
       climber.tick(player, dt, input.move.y, input.move.x);
-      if (climber.active) { player.facing = climber.facing(); return; }
+      if (climber.active) {
+        player.facing = climber.facing();
+        // のり越えて着地したときの音はゲームと同じく 1.2m 落ちた扱い
+        air.peakY = player.pos.y + 1.2; air.wasOnGround = false; air.jumpUsed = false;
+        return;
+      }
     }
   } else if (climber.tryBegin(player, want)) {
     player.facing = climber.facing();
+    air.peakY = player.pos.y + 1.2; air.wasOnGround = false;
     return;
   }
   want.multiplyScalar(SPEED * (input.sprint ? SPRINT_SPEED_MUL : 1));
@@ -242,12 +299,12 @@ function stepPlayer(dt, viewYaw, inXrMove = false) {
     // PC・スマホの三人称: 体はいつもカメラの向き。A/D は横歩き（ゲームと同じ）
     player.facing = viewYaw + Math.PI;
   }
-  if (input.jump && player.onGround) {
-    player.vel.y = JUMP_VELOCITY;
-    player.onGround = false;
-  }
+  if (input.jump) tryJump();
   input.jump = false;
-  player.vel.y -= GRAVITY * dt;
+  // 滑空: 二段ジャンプのあと押したままなら、ゆっくり落ちる
+  const gliding = air.jumpUsed && input.jumpHeld && !player.onGround && player.vel.y < 0;
+  player.vel.y -= GRAVITY * (gliding ? GLIDE_GRAVITY_MUL : 1) * dt;
+  if (gliding && player.vel.y < -GLIDE_MAX_FALL_SPEED) player.vel.y = -GLIDE_MAX_FALL_SPEED;
 
   const pos = player.pos;
   const nx = pos.x + player.vel.x * dt;
@@ -272,6 +329,14 @@ function stepPlayer(dt, viewYaw, inXrMove = false) {
     player.onGround = false;
   }
   if (pos.y < ROOF_Y - 4) { pos.copy(spawnPoint()); player.vel.set(0, 0, 0); }
+  // 着地音（落ちた高さ）と足音
+  if (!player.onGround) {
+    air.peakY = air.wasOnGround ? pos.y : Math.max(air.peakY, pos.y);
+  } else if (!air.wasOnGround) {
+    onLanded(Math.max(air.peakY - pos.y, 0));
+  }
+  air.wasOnGround = player.onGround;
+  steps.tick(dt, pos, player.onGround);
 }
 
 // --- カメラ（デスクトップ・スマホ） ---
@@ -464,7 +529,7 @@ function selectItem(i) {
 window.addEventListener('keydown', (e) => {
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
   keys.add(e.code);
-  if (e.code === 'Space') { input.jump = true; e.preventDefault(); }
+  if (e.code === 'Space') { if (!e.repeat) input.jump = true; e.preventDefault(); }
   const n = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'].indexOf(e.code);
   if (n >= 0) selectItem(n);
   if (e.code === 'KeyQ') selectItem(selected - 1);
@@ -593,7 +658,7 @@ function setupTouch() {
     el.addEventListener('touchcancel', () => up(true));
   };
   hold(placeBtn, () => beginPress('touch'), (cancel) => endPress('touch', cancel === true));
-  hold(jumpBtn, () => { input.jump = true; }, () => {});
+  hold(jumpBtn, () => { input.jump = true; touch.jumpHeld = true; }, () => { touch.jumpHeld = false; });
 }
 
 // --- HUD・宝箱・看板・VR ---
@@ -805,6 +870,7 @@ function frame() {
     viewYaw = xr.headYaw();
     input.move.copy(xr.move);
     input.sprint = xr.sprint;
+    input.jumpHeld = xr.jumpHeld;
   } else {
     const mv = new THREE.Vector2(
       (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0),
@@ -813,6 +879,7 @@ function frame() {
     if (touch.stickVec.lengthSq() > 0.0004) mv.copy(touch.stickVec);
     input.move.copy(mv);
     input.sprint = keys.has('ShiftLeft') || keys.has('ShiftRight') || touch.stickVec.length() > 0.95;
+    input.jumpHeld = keys.has('Space') || touch.jumpHeld;
   }
   stepPlayer(dt, viewYaw, inXr);
   playerView.update(dt, player.pos, player.facing, player.vel, player.onGround, climber.active ? climber : null);

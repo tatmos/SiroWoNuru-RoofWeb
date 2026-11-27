@@ -4,6 +4,10 @@ const FILES = {
   place_wall: 'assets/sfx/sfx_place_wall.wav',
   set: 'assets/sfx/set.wav',
   chest: 'assets/sfx/sfx_chest.wav',
+  // 屋上の床・レンガ・大理石はゲームでは「concrete」の着地音。高く落ちたら重い岩の音
+  land_concrete: 'assets/sfx/sfx_landing_concrete.wav',
+  land_heavy_rock1: 'assets/sfx/sfx_landing_heavy_rock1.wav',
+  land_heavy_rock2: 'assets/sfx/sfx_landing_heavy_rock2.wav',
 };
 const PLACE_SFX_DB = -6.0;
 
@@ -52,4 +56,69 @@ export function playPickup() {
 
 export function playChest() {
   play('chest', -2.0);
+}
+
+// --- 着地音・足音（ゲームの match_audio.gd の play_land / play_step と player_water_steps.gd の _ground_step） ---
+const LAND_HEAVY_FALL = 3.5;
+const LAND_STEP_BASE_DB = -6.0;
+let heavyCursor = 0;
+const jitter = () => 0.93 + Math.random() * 0.14;
+
+function playRaw(name, db, rate) {
+  if (!ctx || !buffers[name]) return;
+  const src = ctx.createBufferSource();
+  src.buffer = buffers[name];
+  src.playbackRate.value = rate;
+  const g = ctx.createGain();
+  g.gain.value = Math.pow(10, db / 20);
+  src.connect(g).connect(master);
+  src.start();
+}
+
+// 落ちた高さで大きさが変わる（0.2m 未満は鳴らさない、~8m で最大）
+export function playLand(fallHeight) {
+  if (fallHeight < 0.2) return;
+  let t = Math.min(1, Math.max(0, (fallHeight - 0.3) / 7.5));
+  t *= t;
+  const db = -18.0 + (1.0 + 18.0) * t;
+  let key = 'land_concrete';
+  if (fallHeight >= LAND_HEAVY_FALL) { heavyCursor = (heavyCursor + 1) % 2; key = `land_heavy_rock${heavyCursor + 1}`; }
+  playRaw(key, db, jitter());
+}
+
+const GROUND_STEP_MIN = 0.75;
+const GROUND_STEP_MAX = 1.5;
+const STILL_SEC = 0.4;
+const FIRST_STEP_AT = 0.15;
+const STREAK_DB = -1.5;
+const STREAK_MIN_DB = -12.0;
+const RUN_SPEED = 3.0;
+const RUN_DB = -4.0;
+const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+// 歩いた距離で鳴らす。歩き出しの一歩は着地音の半分、続けて歩くあいだは 1/4。走るほど小さく
+export class Steps {
+  constructor() { this.reset(); this.last = null; this.still = 0; }
+  reset() { this.first = true; this.walked = 0; this.streak = 0; }
+  tick(dt, pos, onGround) {
+    const moved = this.last ? Math.hypot(pos.x - this.last.x, pos.z - this.last.z) : 0;
+    this.last = { x: pos.x, z: pos.z };
+    const still = moved < 0.004;
+    this.still = still ? this.still + dt : 0;
+    if (this.still >= STILL_SEC) { this.first = true; this.walked = 0; }
+    if (still || !onGround) return;
+    this.walked += moved;
+    const speed = moved / Math.max(dt, 0.001);
+    const span = this.first ? FIRST_STEP_AT : Math.min(GROUND_STEP_MAX, Math.max(GROUND_STEP_MIN, 0.55 + 0.12 * speed));
+    if (this.walked < span) return;
+    this.walked = 0;
+    let quiet = 0;
+    if (this.first) this.streak = 0;
+    else {
+      this.streak += 1;
+      quiet = Math.max(STREAK_DB * (this.streak - 1), STREAK_MIN_DB) + RUN_DB * smooth(RUN_SPEED * 0.8, RUN_SPEED * 1.6, speed);
+    }
+    playRaw('land_concrete', LAND_STEP_BASE_DB + (this.first ? -6.02 : -12.04) + quiet, jitter());
+    this.first = false;
+  }
 }
